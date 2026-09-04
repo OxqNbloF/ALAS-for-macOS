@@ -1,0 +1,92 @@
+{
+  "fill" : {
+    "solid" : "srgb:0.00000,0.42000,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "Terminal.png",
+          "name" : "终端标志 >_",
+          "position" : {
+            "scale" : 0.3,
+            "translation-in-points" : [
+              -220.84000000000003,
+              -274.18
+            ]
+          }
+        }
+      ],
+      "name" : "终端标志 Terminal",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "Wrench.png",
+          "name" : "扳手 Wrench",
+          "position" : {
+            "scale" : 0.76,
+            "translation-in-points" : [
+              38,
+              -4.180000000000064
+            ]
+          }
+        }
+      ],
+      "name" : "扳手 Wrench",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
+    },
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : "none",
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Background.png",
+          "name" : "背景 Background",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "name" : "背景 Background",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

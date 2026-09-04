@@ -1,0 +1,34 @@
+# macOS 部署默认值，首次安装时填入私有工具的绝对路径。
+Deploy:
+  Git:
+    Repository: https://github.com/LmeSzinc/AzurLaneAutoScript.git
+    Branch: master
+    GitExecutable: git
+    GitProxy: null
+    SSLVerify: true
+    AutoUpdate: false
+  Python:
+    PythonExecutable: python
+    PypiMirror: https://mirrors.aliyun.com/pypi/simple
+    InstallDependencies: false
+    RequirementsFile: requirements.txt
+  Adb:
+    AdbExecutable: adb
+    ReplaceAdb: false
+    AutoConnect: true
+    InstallUiautomator2: true
+  Update:
+    EnableReload: false
+    CheckUpdateInterval: 0
+    AutoRestartTime: null
+  RemoteAccess:
+    EnableRemoteAccess: false
+  Webui:
+    WebuiHost: 127.0.0.1
+    WebuiPort: 22267
+    Language: zh-CN
+    Theme: default
+    DpiScaling: true
+    Password: null
+    CDN: false
+    Run: null
