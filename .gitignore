@@ -4,7 +4,6 @@ dist/
 __pycache__/
 *.pyc
 
-# Personal Xcode preferences and signing settings
+# Personal Xcode preferences
 xcuserdata/
 *.xcuserstate
-/Config/Signing.local.xcconfig

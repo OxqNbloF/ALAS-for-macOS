@@ -1,118 +1,99 @@
 # ALAS for macOS
 
-[ALAS](https://github.com/LmeSzinc/AzurLaneAutoScript) 的 macOS 原生启动器，使用 SwiftUI 和 AppKit。启动器负责安装环境、编辑配置、查看日志和管理进程，游戏任务与调度仍由 ALAS 核心执行。
+[ALAS](https://github.com/LmeSzinc/AzurLaneAutoScript) 的 macOS 原生启动器，使用 SwiftUI 和 AppKit，提供环境部署、配置编辑、日志查看和核心进程管理。游戏任务与调度由 ALAS 核心执行。
 
-当前版本为 0.1.0（Build 62），面向 Apple Silicon。工程的最低系统版本设为 macOS 13，尚未完成该版本的实机兼容性测试。当前使用 Xcode 27 beta 构建。
+## 直接使用
 
-## 使用
+### 下载与安装
 
-首次打开 App 会联网部署，依次准备私有 Python、Git、ADB、ALAS 核心和运行依赖。无需预装 Python 或 Homebrew，也不需要选择数据目录。
+面向 Apple Silicon Mac，最低系统版本设为 macOS 13；macOS 13 尚未完成实机兼容性验证。
 
-部署工具使用 Python 3.11，核心环境使用 Python 3.8，两者分开安装。核心从官方 GitHub 仓库的 `master` 分支下载；工具和依赖使用脚本中配置的国内镜像。首次无法确认上游提交时会停止部署，可查看日志后重试。
+1. 在 [Releases](https://github.com/OxqNbloF/ALAS-for-macOS/releases) 下载 `macOS-arm64.zip` 附件。
+2. 解压后将 `ALAS.app` 拖入“应用程序”。
+3. 打开 App，等待首次联网部署完成。无需预装 Python、Git、ADB 或 Homebrew。
 
-进入主界面后，新建或导入配置，填写设备连接及任务设置，保存后启动。界面提供：
+App 仅使用 ad-hoc 签名，未经 Apple 公证。若 macOS 阻止打开，确认下载来源后，在系统设置的“隐私与安全性”中允许打开。
 
-- 配置的新建、复制、删除及 JSON 导入导出。
-- 任务和字段搜索、配置编辑、调度状态查看。
-- 核心任务启停、日志筛选与复制。
-- 核心更新、回退、服务重启和错误诊断。
-- 配置字段语言及浅色、深色外观设置。
+首次部署需要访问 GitHub 及依赖下载镜像。失败时可查看错误详情、导出日志并重试。
 
-配置修改需要手动保存。未编辑的“下一次运行时间”跟随核心刷新，正在编辑的值不会被自动覆盖。
+### 配置与运行
 
-当前不提供旧数据目录的整体导入，也不发布上游 Web 页面。原生界面通过带令牌认证的本机 HTTP 接口连接核心，ADB 使用独立本机端口，不接管已有的 5037 服务。
+在主界面新建或导入 JSON 配置，填写设备连接和任务设置，保存后启动。支持配置复制与导出、任务与字段搜索、调度状态查看、日志筛选、核心启停和外观设置。
 
-## 数据与日志
+配置修改需要手动保存。未编辑的“下一次运行时间”随核心刷新，正在编辑的值会保留。不支持旧数据目录的整体导入。
 
-所有运行数据保存在：
+### 更新与回退
+
+启动器会检查核心更新，也可以在“核心更新”页手动同步。更新前会停止任务；未保存的配置需要先保存或放弃修改。
+
+核心更新复用已安装的环境，只保留一个可回退的核心版本。回退不恢复用户配置，也不切换运行环境；环境缺失或损坏时会报错。
+
+启动器本身需手动更新：退出所有 ALAS 实例，用新 App 替换旧 App。替换或删除 App 不会删除运行数据。
+
+### 数据与排错
+
+运行数据固定保存在：
 
 ```text
 ~/Library/Application Support/AzurLaneAutoScript/
 ```
 
-主要目录和文件：
+用户配置位于 `data/config/`，核心错误日志位于 `data/log/`，启动器错误摘要为 `launcher-errors.log`，首次部署失败报告位于 `reports/`。普通运行输出可直接在界面查看。
 
-```text
-AzurLaneAutoScript/
-├── bin/                  micromamba
-├── bootstrap/            部署用 Python 和 Git
-├── tools/                ADB
-├── core-download/        首次下载的中间文件
-├── core/                 核心 Git 工作树
-├── environments/         核心运行环境
-├── data/
-│   ├── config/           用户配置和 deploy.yaml
-│   ├── log/              核心错误日志
-│   └── …                 截图等数据
-├── cache/uiautomator2/    设备组件下载缓存
-├── home/                 子进程私有 HOME
-├── tmp/                  临时文件
-├── reports/              首次部署失败报告
-├── active.json           当前核心和环境记录
-├── previous.json         上一个可回退版本
-├── environment.json      已安装环境记录
-├── installation.json     首次部署恢复记录
-├── native-ui.json        界面偏好
-└── launcher-errors.log   启动器错误摘要
-```
+不要直接移动数据目录，已安装环境和状态记录包含绝对路径。完整首次部署、模拟器游戏任务和各系统版本兼容性仍需实际验证，构建成功不代表游戏任务可用。
 
-普通输出实时显示在界面中，文件日志只保留错误和异常堆栈。排查问题时先看 `launcher-errors.log`，再看 `data/log/` 中对应配置的日志。首次部署失败还会保存阶段、原因和最近输出，可通过“导出日志…”另存。
+## 开发
 
-App 可以移动、改名或整包替换，删除 App 不会删除运行数据。不要直接移动数据目录：Conda 环境和状态记录中包含绝对路径。
+### 环境与构建
 
-## 更新
+需要 Apple Silicon Mac 和完整 Xcode。首次使用 Xcode 时，先完成许可确认与组件安装。工程此前使用 Xcode 27 beta 构建。
 
-普通启动会检查核心更新，“核心更新”页也可以手动检查和同步。更新前会停止核心任务；有未保存的配置时，需要先保存或放弃修改。
-
-核心更新复用已有 Python、Git、ADB 和依赖，不重新安装环境。候选版本会在现有环境中验证，失败时尝试继续使用原版本；更新后的服务启动失败且有上一版本可用时，会尝试自动回退。环境缺失或损坏会报错，不会自动重装。
-
-只保留一个核心回退版本。回退仅切换代码，不恢复用户配置，也不切换运行环境。
-
-启动器本身没有自动更新服务。退出所有 ALAS 实例后，用完整的新 App 替换旧 App 即可，数据目录继续沿用。
-
-## 构建
-
-需要 Apple Silicon Mac 和完整 Xcode。在仓库根目录执行：
+在仓库根目录执行：
 
 ```sh
 ./scripts/build-app.sh
 ```
 
-默认使用 `/Applications/Xcode-beta.app/Contents/Developer`，生成 `dist/ALAS.app`。脚本构建 Release 版本，执行本机临时签名并校验签名；输出路径已存在时会退出，不覆盖已有 App。
-
-指定 Xcode 和输出路径：
+默认使用 `xcode-select` 选中的 Xcode，生成 `dist/ALAS.app`。也可以指定 Xcode 和新的输出路径：
 
 ```sh
 DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer" \
 ./scripts/build-app.sh "$PWD/dist/ALAS-local.app"
 ```
 
-也可以在 Xcode 中打开 `ALAS for macOS.xcodeproj`，选择 `ALAS for macOS` scheme 和 My Mac 构建。签名身份可通过 `ALAS_SIGN_IDENTITY` 指定，必须是本机可用的身份；构建脚本不执行公证。
+或在 Xcode 中打开 `ALAS for macOS.xcodeproj`，选择 `ALAS for macOS` scheme 和 My Mac 构建。
 
-Xcode 的 Debug 和 Release 签名配置会自动读取本机的 `Config/Signing.local.xcconfig`。首次设置时复制模板，并填写自己的 Apple 开发团队 ID：
+Debug、Release 及打包脚本仅使用 ad-hoc 签名，不需要开发者账号、证书、团队 ID 或本地签名配置。App Sandbox 和 Hardened Runtime 均关闭，核心与子进程以当前用户权限运行。
+
+### 发布打包
 
 ```sh
-cp Config/Signing.local.xcconfig.example Config/Signing.local.xcconfig
+./scripts/package-release.sh
 ```
 
-本地配置与 `xcuserdata/` 已加入 Git 忽略规则。请在本地配置文件中设置 `DEVELOPMENT_TEAM`，避免通过 Xcode 将个人团队 ID 写回共享工程。未创建本地配置时仍可使用上面的脚本构建本机临时签名包。
+脚本构建 Release App，校验 ad-hoc 签名，压缩后重新解压验证，并在 `dist/` 生成包含版本号、Build 和架构的 ZIP 及 `.sha256` 校验文件。已有输出不会被覆盖，脚本不自动上传附件。
 
-## 代码结构
+上传这两个文件到对应的 GitHub Release。下载后可在附件所在目录校验：
+
+```sh
+shasum -a 256 -c ALAS-0.1.0-build63-macOS-arm64.zip.sha256
+```
+
+### 代码与运行环境
 
 源码位于 `ALAS for macOS/`：
 
-- `launcher.*.swift`：应用入口、启动页、部署进度、进程管理、数据目录和错误报告。
-- `alas.*.swift`：主界面、字段编辑、配置模型、本机接口客户端和日志视图。
-- `Runtime/bootstrap.sh`：准备私有部署工具，进入 Python 安装器。
-- `Runtime/runtime.py`：安装环境、下载核心、关联数据、更新与回退。
-- `Runtime/deployment.py`、`git_download.py`：生成部署配置，处理下载进度和超时。
-- `Runtime/serve.py`、`native_api.py`：启动核心与独立 ADB，提供原生界面接口。
-- `Runtime/device_cache.py`：将设备组件缓存放到可写的数据目录。
-- `Runtime/validate.py`、`error_logging.py`：检查依赖和 OCR 模型，过滤文件日志。
+- `launcher.*.swift`：应用入口、部署进度、进程管理、存储和错误报告。
+- `alas.*.swift`：配置编辑、客户端模型、本机 API 客户端和日志界面。
+- `Runtime/bootstrap.sh`、`runtime.py`：私有工具安装、环境部署、核心下载、更新和回退。
+- `Runtime/serve.py`、`native_api.py`：核心服务与带令牌认证的本机 HTTP 接口。
+- 其余 Runtime 模块：下载、设备缓存、依赖验证和错误日志。
 
-Swift 文件由 Xcode 同步文件夹管理，Runtime 脚本在构建时复制到 App。macOS 适配放在启动器中，不直接修改下载的上游源码和已安装依赖。
+Swift 文件由 Xcode 同步文件夹管理，Runtime 脚本在构建时复制到 App。部署工具使用 Python 3.11，核心环境使用 Python 3.8。核心从官方 GitHub 仓库的 `master` 分支获取，下载校验证书和提交，不允许协议降级或重定向。
 
-## 测试
+原生界面不提供上游 Web 页面。ADB 使用独立本机端口，不接管已有的 5037 服务。macOS 适配放在启动器中，不直接修改下载的上游源码与已安装依赖；固定的运行依赖不会自动适配上游新增要求。
+
+### 测试
 
 Python 单元测试需要 Python、PyYAML 和 Starlette，离线更新测试还需要 Git：
 
@@ -121,7 +102,7 @@ python3 -B -m unittest discover -s Tests -p 'test_*.py'
 python3 -B Tests/integration_git_updates.py
 ```
 
-Swift 测试各自包含入口，分别编译运行。例如：
+Swift 测试各自包含入口，分别编译运行，例如：
 
 ```sh
 ALAS_TEST_DIR="$(mktemp -d /private/tmp/alas-tests.XXXXXX)"
@@ -132,16 +113,8 @@ xcrun swiftc -parse-as-library \
 "$ALAS_TEST_DIR/storage"
 ```
 
-服务集成测试需要已部署的环境，参数见各脚本开头。部署、更新和恢复测试应使用临时数据，不要使用日常配置。Debug 构建可通过 `ALAS_RUNTIME_ROOT` 指定 `/private/tmp/` 下的测试目录；Release 固定使用 Application Support 目录。
+服务集成测试需要已部署环境，参数见各脚本开头。部署、更新和恢复测试应使用临时数据。Debug 可通过 `ALAS_RUNTIME_ROOT` 指定 `/private/tmp/` 下的测试目录，Release 固定使用 Application Support 目录。历史验证范围见 [Tests/VALIDATION.md](Tests/VALIDATION.md)。
 
-## 限制
+### 许可证
 
-- App Sandbox 关闭，Hardened Runtime 保留。核心和子进程以当前用户权限运行，私有环境不是安全沙盒。
-- 核心下载使用官方 GitHub HTTPS 地址，校验证书和提交，不允许协议降级或重定向；未校验独立的发布签名。
-- 运行环境按现有依赖固定，不自动适配上游新增的依赖要求。
-- 本机临时签名包适合本机测试，不是已公证的分发包。
-- 构建或服务启动成功不代表设备连接和游戏任务可用；完整首次部署、模拟器任务、macOS 13 兼容性及正式签名公证仍需实际验证。
-
-## 许可证
-
-本项目与 [ALAS](https://github.com/LmeSzinc/AzurLaneAutoScript/blob/master/LICENSE) 一样采用 GNU GPL v3 许可证
+本项目采用 [GNU GPL v3](LICENSE)，与上游 ALAS 一致。

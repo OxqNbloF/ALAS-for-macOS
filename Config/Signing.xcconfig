@@ -1,2 +1,0 @@
-// Personal signing settings are optional and stay on this machine.
-#include? "Signing.local.xcconfig"
