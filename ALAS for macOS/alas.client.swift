@@ -75,6 +75,7 @@ final class NativeModel: ObservableObject {
     func connect(url: URL, token: String) async {
         let identifier = UUID(); epoch = identifier
         baseURL = url; self.token = token
+        AwakeController.shared.attach(url: url, token: token)
         do {
             let preferences: [String: String] = try await request("ui-preferences")
             language = preferences["language"] ?? "zh-CN"
@@ -178,6 +179,7 @@ final class NativeModel: ObservableObject {
             var body: [String: Any] = ["name": self.profile, "action": stop ? "stop" : "start"]
             if let function { body["function"] = function }
             let _: [String: Bool] = try await self.request("action", body: body)
+            AwakeController.shared.taskRunningChanged(!stop)
             try await self.refresh()
         }
     }

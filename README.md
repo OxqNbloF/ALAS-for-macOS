@@ -22,6 +22,10 @@ App 仅使用 ad-hoc 签名，未经 Apple 公证。若 macOS 阻止打开，确
 
 配置修改需要手动保存。未编辑的“下一次运行时间”随核心刷新，正在编辑的值会保留。不支持旧数据目录的整体导入。
 
+任务运行时，启动器默认阻止系统闲置休眠，避免自动化被中断；这些设置位于侧边栏「保持唤醒」页，可关闭，或用「退出唤醒状态当电池电量低于」滑动条调整阈值。勾选「合盖后仍保持运行」需要管理员授权，会修改系统 `pmset` 的 `disablesleep`；该设置是持久的，退出应用后仍然生效，关闭该开关时才恢复。需要手动恢复时可在终端执行 `sudo pmset -a disablesleep 0`。
+
+任务执行期间关闭主窗口不会退出应用，任务会在后台继续运行（启动器独立轮询任务状态，不依赖主界面）。在同一页的「后台运行」中开启「关闭主窗口后继续在后台运行」后，没有任务时也常驻后台；点按 Dock 图标可重新打开窗口，Cmd+Q 正常退出。
+
 ### 更新与回退
 
 启动器会检查核心更新，也可以在“核心更新”页手动同步。更新前会停止任务；未保存的配置需要先保存或放弃修改。
@@ -108,7 +112,7 @@ xcodebuild -project 'ALAS for macOS.xcodeproj' -scheme 'ALAS for macOS' \
   -destination 'platform=macOS,arch=arm64' test
 ```
 
-`NativeModelTests/liveCatalogDecoding` 是可选集成测试，只有设置 `ALAS_TEST_DATA=<已部署的运行数据目录>` 后才访问本机核心。服务类集成测试需要事先部署的环境，参数见各脚本开头。部署、更新和恢复测试应使用临时数据。Debug 可通过 `ALAS_RUNTIME_ROOT` 指定 `/private/tmp/` 下的测试目录，Release 固定使用 Application Support 目录。历史验证范围见 [Tests/VALIDATION.md](Tests/VALIDATION.md)。
+`NativeModelTests/liveCatalogDecoding` 是可选集成测试，只有设置 `ALAS_TEST_DATA=<已部署的运行数据目录>` 后才访问本机核心。服务类集成测试需要事先部署的环境，参数见各脚本开头。部署、更新和恢复测试应使用临时数据。Debug 可通过 `ALAS_RUNTIME_ROOT` 指定 `/private/tmp/` 下的测试目录，Release 固定使用 Application Support 目录。
 
 ### 许可证
 

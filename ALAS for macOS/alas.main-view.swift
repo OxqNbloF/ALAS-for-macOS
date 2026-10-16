@@ -16,6 +16,10 @@ struct NativeMainView: View {
     @State private var confirmDiscard = false
     @State private var showCoreLogs = false
     @State private var deletingProfile: String?
+    @ObservedObject private var awake = AwakeController.shared
+    @AppStorage("awakeEnabled") private var awakeEnabled = true
+    @AppStorage("awakeThreshold") private var awakeThreshold = 20
+    @AppStorage("keepRunningInBackground") private var keepRunningInBackground = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -68,6 +72,14 @@ struct NativeMainView: View {
             }
         }
         .task(id: token) { await model.connect(url: url, token: token) }
+        .onChange(of: anyTaskRunning) { _, running in awake.taskRunningChanged(running) }
+        .onChange(of: awakeEnabled) { _, value in awake.configure(enabled: value, threshold: awakeThreshold) }
+        .onChange(of: awakeThreshold) { _, value in awake.configure(enabled: awakeEnabled, threshold: value) }
+        .task {
+            awake.refreshSystemSleepState()
+            awake.configure(enabled: awakeEnabled, threshold: awakeThreshold)
+            awake.taskRunningChanged(anyTaskRunning)
+        }
         .preferredColorScheme(model.appearance == "dark" ? .dark : (model.appearance == "light" ? .light : nil))
         .onChange(of: model.dirty) { _, newValue in
             launcher.hasUnsavedNativeChanges = newValue
@@ -99,6 +111,11 @@ struct NativeMainView: View {
         }
     }
 
+    // 任一配置正在运行即保持唤醒。
+    private var anyTaskRunning: Bool {
+        model.snapshot?.profiles.contains { $0.state == 1 } ?? false
+    }
+
     // 显示分组任务导航
     private var sidebar: some View {
         VStack(spacing: 0) {
@@ -117,6 +134,7 @@ struct NativeMainView: View {
                 }
                 Section("应用") {
                     Label("核心更新", systemImage: "arrow.triangle.2.circlepath").tag("updates")
+                    Label("保持唤醒", systemImage: "moon.zzz").tag("awake")
                     Label("远程访问", systemImage: "network").tag("remote")
                     Label("诊断工具", systemImage: "stethoscope").tag("diagnostics")
                 }
@@ -166,7 +184,8 @@ struct NativeMainView: View {
     private var title: String {
         if let task = model.selectedTask { return task.title }
         return ["home": "指挥中心", "overview": "调度总览", "logs": "实时日志", "manage": "配置管理",
-                "updates": "ALAS 核心更新", "remote": "远程访问", "diagnostics": "诊断工具"][model.page] ?? "ALAS"
+                "updates": "ALAS 核心更新", "remote": "远程访问", "diagnostics": "诊断工具",
+                "awake": "保持唤醒"][model.page] ?? "ALAS"
     }
     // 切换当前功能页面
     @ViewBuilder private var detail: some View {
@@ -193,6 +212,7 @@ struct NativeMainView: View {
             case "updates": updates
             case "remote": remote
             case "diagnostics": diagnostics
+            case "awake": awakeSettings
             default: ProgressView("正在读取核心配置…")
             }
         }
@@ -349,6 +369,34 @@ struct NativeMainView: View {
                 Button("打开部署配置") { launcher.openDeployConfig() }
             }
         }.formStyle(.grouped)
+    }
+    // 保持唤醒与后台运行设置
+    private var awakeSettings: some View {
+        Form {
+            Section("保持唤醒") {
+                Toggle("任务运行时阻止系统休眠", isOn: $awakeEnabled)
+                HStack(spacing: 12) {
+                    Text("退出唤醒状态当电池电量低于：")
+                    Slider(value: Binding(
+                        get: { Double(awakeThreshold) },
+                        set: { awakeThreshold = Int($0.rounded()) }
+                    ), in: 10...90, step: 10)
+                    Text("\(awakeThreshold)%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                Toggle("合盖后仍保持运行（需要管理员授权）", isOn: Binding(
+                    get: { awake.clamshellDisabled },
+                    set: { awake.setClamshell($0) }))
+                    .help("会修改系统 pmset 的 disablesleep；退出应用后仍保持，关闭该开关时恢复。")
+                LabeledContent("状态", value: awake.status)
+                if let battery = awake.batteryPercent {
+                    LabeledContent("电池", value: "\(battery)%\(awake.onBattery ? "" : " · 接通电源")")
+                }
+                
+            }
+            Section("后台运行") {
+                Toggle("关闭主窗口后继续在后台运行", isOn: $keepRunningInBackground)
+            }
+        }.formStyle(.grouped).disabled(model.busy)
     }
     // 展示诊断与界面设置
     private var diagnostics: some View {

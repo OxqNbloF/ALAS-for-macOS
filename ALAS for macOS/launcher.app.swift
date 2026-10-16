@@ -20,7 +20,17 @@ import AppKit
 final class LauncherDelegate: NSObject, NSApplicationDelegate {
     var launcher: LauncherModel?
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { false }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    // 任务运行中，或用户要求常驻后台时，关闭最后一个窗口不退出。
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !UserDefaults.standard.bool(forKey: "keepRunningInBackground") && !AwakeController.shared.isTaskRunning
+    }
+    // 点按 Dock 图标时重新显示主窗口。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            for window in sender.windows where window.canBecomeKey { window.makeKeyAndOrderFront(nil) }
+        }
+        return true
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if launcher?.hasUnsavedNativeChanges == true {
             let alert = NSAlert()
@@ -30,6 +40,7 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate {
         }
         Task {
             await launcher?.shutdown()
+            await AwakeController.shared.stop()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
