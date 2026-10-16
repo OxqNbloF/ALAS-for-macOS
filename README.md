@@ -75,12 +75,12 @@ Debug、Release 及打包脚本仅使用 ad-hoc 签名，不需要开发者账�
 ./scripts/package-release.sh
 ```
 
-脚本构建 Release App，校验 ad-hoc 签名，压缩后重新解压验证，并在 `dist/` 生成包含版本号、Build 和架构的 ZIP 及 `.sha256` 校验文件。已有输出不会被覆盖，脚本不自动上传附件。
+脚本构建 Release App，校验 ad-hoc 签名，压缩后重新解压验证，并在 `dist/` 生成包含版本号和架构的 ZIP 及 `.sha256` 校验文件（文件名不含 Build 号）。已有输出不会被覆盖，脚本不自动上传附件。
 
 上传这两个文件到对应的 GitHub Release。下载后可在附件所在目录校验：
 
 ```sh
-shasum -a 256 -c ALAS-0.1.0-build63-macOS-arm64.zip.sha256
+shasum -a 256 -c ALAS-0.2.0-macOS-arm64.zip.sha256
 ```
 
 ### 代码与运行环境
