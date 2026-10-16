@@ -1,4 +1,4 @@
-"""检查临时环境的再次启动和 HTTP 服务，不改已安装的依赖。
+"""检查临时环境的再次启动和本机原生接口，不改已安装的依赖。
 
 用法：python -B Tests/integration_runtime.py /private/tmp/alas-...
 会写入运行代码、配置及日志元数据，仅用于临时测试环境。
@@ -51,19 +51,25 @@ def main():
             deadline = time.monotonic() + 120
             while time.monotonic() < deadline:
                 if process.poll() is not None:
-                    raise RuntimeError("Web service exited; inspect integration-service.log")
+                    raise RuntimeError("Native service exited; inspect integration-service.log")
                 if endpoint.is_file():
-                    url = json.loads(endpoint.read_text())["url"]
+                    ready = json.loads(endpoint.read_text())
+                    url = ready["url"]
                     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                    with opener.open(url, timeout=3) as response:
+                    # 根路由只返回健康检查；上游网页在 Build 62 后不再挂载。
+                    with opener.open(url + "/", timeout=3) as response:
                         assert response.status == 200
-                        html = response.read()
-                        assert b"pywebio" in html.lower()
-                        print(f"Web UI HTTP 200: {len(html)} bytes at {url}", flush=True)
-                        break
+                        assert json.loads(response.read()).get("status") == "ok"
+                    request = urllib.request.Request(url + "/native/ui-preferences",
+                        headers={"Authorization": "Bearer " + ready["token"]})
+                    with opener.open(request, timeout=3) as response:
+                        assert response.status == 200
+                        assert "language" in json.loads(response.read())
+                    print(f"Native service ready (health + authenticated API) at {url}", flush=True)
+                    break
                 time.sleep(0.2)
             else:
-                raise TimeoutError("Web UI never became ready")
+                raise TimeoutError("Native service never became ready")
         finally:
             process.terminate()
             try:
@@ -77,7 +83,7 @@ def main():
             except ProcessLookupError:
                 pass
     assert before == snapshot(root), "Serve changed installed tools or packages"
-    print("PASS: warm startup and Web UI preserved all installed files", flush=True)
+    print("PASS: warm startup and native service preserved all installed files", flush=True)
 
 
 if __name__ == "__main__":

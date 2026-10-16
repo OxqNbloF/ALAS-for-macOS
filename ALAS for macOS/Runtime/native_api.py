@@ -110,7 +110,7 @@ class NativeAPI:
             clearing_storage = isinstance(spec, dict) and spec.get("type") == "storage" and change.get("value") == {}
             if not isinstance(spec, dict) or (not clearing_storage and (spec.get("display") in ("hide", "disabled") or spec.get("type") in ("lock", "state", "storage", "stored"))):
                 raise ValueError(f"不可修改字段：{key}")
-            original = json.loads(json.dumps(deep_get(data, key), default=str))
+            original = json.loads(json.dumps(deep_get(data, key, spec.get("value")), default=str))
             if original != change.get("original"):
                 raise ValueError(f"{key} 已被核心或另一窗口修改，请重新载入后再保存")
             raw = change.get("value")

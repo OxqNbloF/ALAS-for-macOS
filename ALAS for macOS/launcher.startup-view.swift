@@ -64,6 +64,9 @@ struct ContentView: View {
             Button("取消", role: .cancel) {}
             Button("停止服务并更新") { launcher.start(mode: "update") }
         } message: { Text("更新会停止当前自动化任务，仅同步 ALAS 核心并检查兼容性，不修改已安装的运行环境。") }
-        .task { launcher.startIfNeeded() }
+        .task {
+            // 单元测试宿主启动时跳过真实部署。
+            if !ProcessInfo.processInfo.isRunningUnitTests { launcher.startIfNeeded() }
+        }
     }
 }

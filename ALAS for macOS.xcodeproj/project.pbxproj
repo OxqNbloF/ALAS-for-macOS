@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* ALAS for macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ALAS for macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		53B6744D3081CBB2007ECD5A /* ALASTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ALASTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -34,10 +35,20 @@
 			path = "ALAS for macOS";
 			sourceTree = "<group>";
 		};
+		53B6744E3081CBB2007ECD5A /* ALASTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ALASTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		000000000000000130000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		53B6744A3081CBB2007ECD5A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 			);
@@ -49,6 +60,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* ALAS for macOS */,
+				53B6744E3081CBB2007ECD5A /* ALASTests */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -57,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000120 /* ALAS for macOS.app */,
+				53B6744D3081CBB2007ECD5A /* ALASTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -83,18 +96,60 @@
 			productReference = 000000000000000000000120 /* ALAS for macOS.app */;
 			productType = "com.apple.product-type.application";
 		};
+		53B6744C3081CBB2007ECD5A /* ALASTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 53B674513081CBB2007ECD5A /* Build configuration list for PBXNativeTarget "ALASTests" */;
+			buildPhases = (
+				53B674493081CBB2007ECD5A /* Sources */,
+				53B6744A3081CBB2007ECD5A /* Frameworks */,
+				53B6744B3081CBB2007ECD5A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				53B674603081CBB2007ECD5A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				53B6744E3081CBB2007ECD5A /* ALASTests */,
+			);
+			name = ALASTests;
+			productName = ALASTests;
+			productReference = 53B6744D3081CBB2007ECD5A /* ALASTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		53B674613081CBB2007ECD5A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000100000000;
+			remoteInfo = "ALAS for macOS";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		53B674603081CBB2007ECD5A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000100000000 /* ALAS for macOS */;
+			targetProxy = 53B674613081CBB2007ECD5A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		000000000000000000000000 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2700;
+				LastSwiftUpdateCheck = 2710;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					000000000000000100000000 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					53B6744C3081CBB2007ECD5A = {
+						CreatedOnToolsVersion = 27.1;
 					};
 				};
 			};
@@ -113,12 +168,18 @@
 			projectRoot = "";
 			targets = (
 				000000000000000100000000 /* ALAS for macOS */,
+				53B6744C3081CBB2007ECD5A /* ALASTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		000000000000000140000000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		53B6744B3081CBB2007ECD5A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -143,6 +204,11 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		000000000000000120000000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		53B674493081CBB2007ECD5A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
 			);
@@ -207,7 +273,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -271,7 +337,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PROJECT_UNIQUE_VALUE = TXGMH6D6;
@@ -285,7 +351,6 @@
 		000000000000000111000000 /* Debug configuration for PBXNativeTarget "ALAS for macOS" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = ALAS;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
@@ -318,7 +383,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.OxqNbloF.ALAS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -338,7 +403,6 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "ALAS for macOS" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = ALAS;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
@@ -371,7 +435,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.OxqNbloF.ALAS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -385,6 +449,56 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = "$(RECOMMENDED_XROS_DEPLOYMENT_TARGET)";
+			};
+			name = Release;
+		};
+		53B674523081CBB2007ECD5A /* Debug configuration for PBXNativeTarget "ALASTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.OxqNbloF.ALASTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ALAS for macOS.app/Contents/MacOS/ALAS for macOS";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		53B674533081CBB2007ECD5A /* Release configuration for PBXNativeTarget "ALASTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.OxqNbloF.ALASTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ALAS for macOS.app/Contents/MacOS/ALAS for macOS";
+				XROS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Release;
 		};
@@ -404,6 +518,14 @@
 			buildConfigurations = (
 				000000000000000111000000 /* Debug configuration for PBXNativeTarget "ALAS for macOS" */,
 				000000000000000112000000 /* Release configuration for PBXNativeTarget "ALAS for macOS" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		53B674513081CBB2007ECD5A /* Build configuration list for PBXNativeTarget "ALASTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				53B674523081CBB2007ECD5A /* Debug configuration for PBXNativeTarget "ALASTests" */,
+				53B674533081CBB2007ECD5A /* Release configuration for PBXNativeTarget "ALASTests" */,
 			);
 			defaultConfigurationName = Release;
 		};

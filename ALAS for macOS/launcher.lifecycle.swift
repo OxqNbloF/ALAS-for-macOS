@@ -8,6 +8,7 @@ import Foundation
 final class LauncherModel: ObservableObject {
     @Published var status = "尚未启动"
     @Published var logs = ""
+    private var logByteCount = 0
     @Published var busy = false
     @Published var failure: String?
     @Published var notice: String?
@@ -64,7 +65,7 @@ final class LauncherModel: ObservableObject {
                 isFirstDeployment = !FileManager.default.fileExists(atPath: root.appendingPathComponent("active.json").path)
                 try acquireLock()
                 await stopService()
-                if isFirstDeployment { logs = "" }
+                if isFirstDeployment { logs = ""; logByteCount = 0 }
                 let previousActive = try? Data(contentsOf: root.appendingPathComponent("active.json"))
                 status = previousActive != nil ? "检查核心更新 · 复用环境" : "首次安装独立环境"
                 do {
@@ -286,10 +287,17 @@ final class LauncherModel: ObservableObject {
 
     // 实时显示并仅落盘错误
     private func append(_ text: String, display: String? = nil) {
-        logs += display ?? text
-        if logs.count > 100_000 { logs = String(logs.suffix(80_000)) }
+        let addition = display ?? text
+        logs.append(contentsOf: addition)
+        logByteCount += addition.utf8.count
+        // 只在超过上限时截断，避免每个分块都做整串计数与复制。
+        if logByteCount > 100_000 {
+            logs = String(logs.suffix(80_000))
+            logByteCount = logs.utf8.count
+        }
         if lockFD >= 0 {
             let errors = errorLog.consume(text)
+            guard !errors.isEmpty else { return }
             do { try LauncherErrorLog.save(errors, root: root) }
             catch { notice = "错误日志保存失败：\(error.localizedDescription)" }
         }
@@ -298,5 +306,14 @@ final class LauncherModel: ObservableObject {
     // 构造启动错误
     private func error(_ message: String) -> NSError {
         NSError(domain: "ALASLauncher", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+extension ProcessInfo {
+    // 作为单元测试宿主启动时，Xcode 会注入下列变量；此时不应触发真实部署。
+    var isRunningUnitTests: Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
     }
 }

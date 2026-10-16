@@ -12,30 +12,78 @@ PYPI_MIRRORS = (
 
 
 def managed_values(root, prefix):
+    """按 Deploy.<Section> 分组，便于模板缺键时插入正确层级。"""
     return {
-        "Repository": UPSTREAM, "Branch": BRANCH, "SSLVerify": True,
-        "GitExecutable": str(root / "bootstrap/bin/git"),
-        "PythonExecutable": str(prefix / "bin/python"),
-        "AdbExecutable": str(root / "tools/platform-tools/adb"),
-        "PypiMirror": PYPI_MIRRORS[0],
-        "EnableReload": False, "AutoUpdate": False, "InstallDependencies": False,
-        "CheckUpdateInterval": 0, "AutoRestartTime": None, "ReplaceAdb": False,
-        "EnableRemoteAccess": False, "CDN": False, "WebuiHost": "127.0.0.1",
+        "Git": {
+            "Repository": UPSTREAM, "Branch": BRANCH, "SSLVerify": True,
+            "GitExecutable": str(root / "bootstrap/bin/git"), "AutoUpdate": False,
+        },
+        "Python": {
+            "PythonExecutable": str(prefix / "bin/python"), "PypiMirror": PYPI_MIRRORS[0],
+            "InstallDependencies": False,
+        },
+        "Adb": {
+            "AdbExecutable": str(root / "tools/platform-tools/adb"), "ReplaceAdb": False,
+        },
+        "Update": {
+            "EnableReload": False, "CheckUpdateInterval": 0, "AutoRestartTime": None,
+        },
+        "RemoteAccess": {"EnableRemoteAccess": False},
+        "Webui": {"WebuiHost": "127.0.0.1", "CDN": False},
     }
 
 
-def render(text, values):
-    # 保留注释和用户选项，按核心解析器要求写入普通标量。
-    missing = []
-    for key, value in values.items():
-        value = "null" if value is None else str(value).lower() if isinstance(value, bool) else str(value)
-        if "\n" in value or "\r" in value:
-            raise ValueError("配置值不能包含换行")
-        text, count = re.subn(r"(?m)^([ \t]*)" + re.escape(key) + r":[^\n]*",
-                             lambda match: match[1] + key + ": " + value, text)
-        if not count:
-            missing.append(f"{key}: {value}\n")
-    return text.rstrip() + "\n" + "".join(missing)
+def scalar(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    value = str(value)
+    if "\n" in value or "\r" in value:
+        raise ValueError("配置值不能包含换行")
+    return value
+
+
+def insert_section(lines, section, entries):
+    """在 Deploy 下找到或新建 section，按 4 空格缩进写入受管键。"""
+    deploy = next((index for index, line in enumerate(lines) if re.match(r"^Deploy:\s*$", line)), None)
+    if deploy is None:
+        lines.append("Deploy:")
+        deploy = len(lines) - 1
+    end = len(lines)
+    for index in range(deploy + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and not line[:1].isspace() and not line.lstrip().startswith("#"):
+            end = index
+            break
+    target = next((index for index in range(deploy + 1, end)
+                   if re.match(r"^[ \t]+" + re.escape(section) + r":\s*$", lines[index])), None)
+    if target is None:
+        lines.insert(end, "  " + section + ":")
+        target, end = end, end + 1
+    for offset, (key, value) in enumerate(entries.items()):
+        lines.insert(target + 1 + offset, f"    {key}: {value}")
+
+
+def render(text, sections):
+    # 已有键保留原缩进与注释；缺失键插入到所属 Deploy.<Section>，避免落到顶层。
+    lines = text.rstrip().split("\n")
+    missing = {}
+    for section, entries in sections.items():
+        for key, value in entries.items():
+            current = scalar(value)
+            pattern = re.compile(r"^([ \t]*)" + re.escape(key) + r":[^\n]*")
+            replaced = False
+            for index, line in enumerate(lines):
+                match = pattern.match(line)
+                if match:
+                    lines[index] = match.group(1) + key + ": " + current
+                    replaced = True
+            if not replaced:
+                missing.setdefault(section, {})[key] = current
+    for section, entries in missing.items():
+        insert_section(lines, section, entries)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def write_if_changed(path, text):

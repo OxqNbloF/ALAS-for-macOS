@@ -1,7 +1,10 @@
 import Foundation
+import Testing
+@testable import ALAS_for_macOS
 
-@main struct LauncherErrorLogTests {
-    static func main() throws {
+// 错误过滤、异常堆栈、分块与只追加存储。
+struct LauncherErrorLogTests {
+    @Test func filteringTracebackAndAppendOnlyStorage() throws {
         var parser = LauncherErrorLog()
         precondition(parser.consume("INFO: ready\nWARNING: retry\n") == "")
         precondition(parser.consume("ERR") == "")
@@ -18,6 +21,5 @@ import Foundation
         try LauncherErrorLog.save("second\n", root: root)
         let saved = try String(contentsOf: file, encoding: .utf8)
         precondition(saved == "first\nsecond\n")
-        print("PASS: error filtering, traceback, chunking and append-only storage")
     }
 }

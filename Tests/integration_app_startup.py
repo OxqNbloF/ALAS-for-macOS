@@ -56,12 +56,19 @@ def main():
                         if process.poll() is not None:
                             raise RuntimeError(log_path.read_text())
                         if endpoint.is_file():
-                            url = json.loads(endpoint.read_text())["url"]
+                            ready = json.loads(endpoint.read_text())
+                            url = ready["url"]
                             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                            with opener.open(url, timeout=5) as response:
-                                html = response.read()
-                                assert response.status == 200 and b"pywebio" in html.lower()
-                            print(f"PASS: Web UI startup and HTTP 200 ({len(html)} bytes)", flush=True)
+                            # 根路由只返回健康检查；上游网页在 Build 62 后不再挂载。
+                            with opener.open(url + "/", timeout=5) as response:
+                                assert response.status == 200
+                                assert json.loads(response.read()).get("status") == "ok"
+                            request = urllib.request.Request(url + "/native/ui-preferences",
+                                headers={"Authorization": "Bearer " + ready["token"]})
+                            with opener.open(request, timeout=5) as response:
+                                assert response.status == 200
+                                assert "language" in json.loads(response.read())
+                            print(f"PASS: native service startup, health and native API ({url})", flush=True)
                             break
                         time.sleep(0.2)
                     else:

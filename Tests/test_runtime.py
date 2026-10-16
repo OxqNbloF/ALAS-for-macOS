@@ -480,6 +480,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue((seed / "log").is_symlink())
         self.assertEqual((self.root / "data/log/old.txt").read_text(), "old logs")
 
+    def test_deploy_inserts_missing_keys_under_their_section(self):
+        source = self.source()
+        config = source / "config/deploy.yaml"
+        config.write_text("Deploy:\n  Git:\n    Repository: old\n  Webui:\n    Language: ja-JP\n")
+        deployment.configure_deploy(source, self.root, self.root / "engine")
+        text = config.read_text()
+        for key in ("GitExecutable", "AdbExecutable", "EnableRemoteAccess", "CDN"):
+            self.assertRegex(text, r"(?m)^    " + key + r": ")
+            self.assertNotRegex(text, r"(?m)^" + key + r": ")
+        self.assertIn("Language: ja-JP", text)
+
 
 if __name__ == "__main__":
     unittest.main()

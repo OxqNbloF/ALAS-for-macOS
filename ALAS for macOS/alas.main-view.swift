@@ -60,7 +60,7 @@ struct NativeMainView: View {
         .searchable(text: $model.search, placement: .toolbar, prompt: "搜索任务与配置项")
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: model.search) { term in
+        .onChange(of: model.search) { _, term in
             if !term.isEmpty {
                 for section in model.catalog?.sections ?? [] where section.tasks.contains(where: matches) {
                     expanded.insert(section.id)
@@ -69,7 +69,9 @@ struct NativeMainView: View {
         }
         .task(id: token) { await model.connect(url: url, token: token) }
         .preferredColorScheme(model.appearance == "dark" ? .dark : (model.appearance == "light" ? .light : nil))
-        .onChange(of: model.dirty) { launcher.hasUnsavedNativeChanges = $0 }
+        .onChange(of: model.dirty) { _, newValue in
+            launcher.hasUnsavedNativeChanges = newValue
+        }
         .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("好") { model.error = nil }
         } message: { Text(model.error ?? "") }

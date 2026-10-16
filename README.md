@@ -6,7 +6,7 @@
 
 ### 下载与安装
 
-面向 Apple Silicon Mac，最低系统版本设为 macOS 13；macOS 13 尚未完成实机兼容性验证。
+面向 Apple Silicon Mac，最低系统版本为 macOS 14。
 
 1. 在 [Releases](https://github.com/OxqNbloF/ALAS-for-macOS/releases) 下载 `macOS-arm64.zip` 附件。
 2. 解压后将 `ALAS.app` 拖入“应用程序”。
@@ -95,25 +95,20 @@ Swift 文件由 Xcode 同步文件夹管理，Runtime 脚本在构建时复制�
 
 ### 测试
 
-Python 单元测试需要 Python、PyYAML 和 Starlette，离线更新测试还需要 Git：
+一条命令即可创建虚拟环境并运行 Python 单元测试、离线 Git 集成测试和 Xcode 单元测试：
 
 ```sh
-python3 -B -m unittest discover -s Tests -p 'test_*.py'
-python3 -B Tests/integration_git_updates.py
+./scripts/test.sh
 ```
 
-Swift 测试各自包含入口，分别编译运行，例如：
+依赖安装到 `build/test-venv`，只运行 Python 部分可加 `ALAS_SKIP_XCODE_TESTS=1`。Swift 测试位于 `ALASTests/`，属于 `ALAS for macOS` scheme 的 `ALASTests` 单元测试目标（Swift Testing），可在 Xcode 中按 Cmd+U，或直接：
 
 ```sh
-ALAS_TEST_DIR="$(mktemp -d /private/tmp/alas-tests.XXXXXX)"
-xcrun swiftc -parse-as-library \
-  "ALAS for macOS/launcher.storage.swift" \
-  Tests/launcher.storage-tests.swift \
-  -o "$ALAS_TEST_DIR/storage"
-"$ALAS_TEST_DIR/storage"
+xcodebuild -project 'ALAS for macOS.xcodeproj' -scheme 'ALAS for macOS' \
+  -destination 'platform=macOS,arch=arm64' test
 ```
 
-服务集成测试需要已部署环境，参数见各脚本开头。部署、更新和恢复测试应使用临时数据。Debug 可通过 `ALAS_RUNTIME_ROOT` 指定 `/private/tmp/` 下的测试目录，Release 固定使用 Application Support 目录。历史验证范围见 [Tests/VALIDATION.md](Tests/VALIDATION.md)。
+`NativeModelTests/liveCatalogDecoding` 是可选集成测试，只有设置 `ALAS_TEST_DATA=<已部署的运行数据目录>` 后才访问本机核心。服务类集成测试需要事先部署的环境，参数见各脚本开头。部署、更新和恢复测试应使用临时数据。Debug 可通过 `ALAS_RUNTIME_ROOT` 指定 `/private/tmp/` 下的测试目录，Release 固定使用 Application Support 目录。历史验证范围见 [Tests/VALIDATION.md](Tests/VALIDATION.md)。
 
 ### 许可证
 

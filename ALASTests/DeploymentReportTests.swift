@@ -1,7 +1,10 @@
 import Foundation
+import Testing
+@testable import ALAS_for_macOS
 
-@main struct DeploymentFailureReportTests {
-    static func main() throws {
+// 失败报告内容、唯一命名与私有权限。
+struct DeploymentFailureReportTests {
+    @Test func reportContentUniqueNamesAndPermissions() throws {
         let files = FileManager.default
         let directory = files.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try files.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -18,6 +21,5 @@ import Foundation
         precondition(permissions.intValue == 0o600)
         let count = try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).count
         precondition(count == 2)
-        print("PASS: failure report content, unique names and private permissions")
     }
 }

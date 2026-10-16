@@ -8,9 +8,11 @@ struct LauncherErrorLog {
     mutating func consume(_ text: String) -> String {
         pending += text
         var output = ""
-        while let newline = pending.firstIndex(of: "\n") {
-            let line = String(pending[..<newline])
-            pending.removeSubrange(...newline)
+        var start = pending.startIndex
+        // 只扫描一次并保留末尾未完成行，避免逐行从字符串头部删除造成 O(n²)。
+        while let newline = pending[start...].firstIndex(of: "\n") {
+            let line = String(pending[start..<newline])
+            start = pending.index(after: newline)
             if line.hasPrefix("Traceback (most recent call last):") {
                 traceback = true
                 output += line + "\n"
@@ -23,6 +25,7 @@ struct LauncherErrorLog {
                 output += line + "\n"
             }
         }
+        pending = String(pending[start...])
         return output
     }
 

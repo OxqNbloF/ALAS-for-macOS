@@ -112,6 +112,37 @@ class NativeAPITests(unittest.TestCase):
             manager.alive = True
             with self.assertRaises(ValueError): api.action({"name": "alas", "action": "start"})
 
+    def test_save_accepts_catalog_default_for_absent_field(self):
+        def deep_get(data, key, default=None):
+            for part in key.split("."):
+                if not isinstance(data, dict) or part not in data:
+                    return default
+                data = data[part]
+            return data
+
+        def deep_set(data, key, value):
+            parts = key.split(".")
+            for part in parts[:-1]:
+                data = data.setdefault(part, {})
+            data[parts[-1]] = value
+
+        args = {"Main": {"Settings": {"Enable": {"type": "checkbox", "value": True}}}}
+        data = {}
+        updater = SimpleNamespace(read_file=lambda _: data, save_callback=lambda *_: [])
+        api = native_api.NativeAPI(Path("."), Path("."), "test")
+        modules = {
+            "module.config.deep": SimpleNamespace(deep_get=deep_get, deep_set=deep_set),
+            "module.webui.utils": SimpleNamespace(parse_pin_value=lambda value, _: value,
+                re_fullmatch=lambda pattern, value: True),
+        }
+        with patch.dict(sys.modules, modules), patch.object(api, "known", return_value="test"), \
+                patch.object(api, "context", return_value=("alas", updater, args, {})), \
+                patch.object(api, "commit") as commit:
+            api.save({"name": "test", "changes": [
+                {"id": "Main.Settings.Enable", "original": True, "value": False}]})
+        self.assertEqual(data["Main"]["Settings"]["Enable"], False)
+        commit.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
