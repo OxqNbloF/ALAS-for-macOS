@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import queue
 import shutil
 import signal
 import subprocess
@@ -34,6 +35,17 @@ PYTHON_PACKAGES = {
     "sortedcontainers", "starlette", "tqdm", "trio", "typing-extensions", "urllib3",
     "uvicorn", "wcwidth", "websockets", "wheel", "wrapt", "zipp", "outcome",
 }
+
+
+def bundled(*parts):
+    """应用包内的运行时种子路径；未打包时由在线下载补齐。"""
+    return RESOURCES.joinpath("bundled", *parts)
+
+
+def dependency_lock(name):
+    """已提交的依赖锁；缺失时回退到 environment.macos-arm64.yml 的求解安装。"""
+    path = RESOURCES / "locks" / name
+    return path if path.is_file() else None
 
 
 def atomic_json(path, value):
@@ -112,13 +124,94 @@ def progress(step, title):
     print(f"\n@@ALAS_STAGE:{step}:{title}", flush=True)
 
 
+class ProgressReporter:
+    """向界面发送单调递增的安装百分比，避免重试时进度回退。"""
+
+    def __init__(self):
+        self.value = -1
+        self.guard = threading.Lock()
+
+    def set(self, percent):
+        value = max(0, min(100, int(percent)))
+        with self.guard:
+            if value <= self.value:
+                return
+            self.value = value
+        print(f"@@ALAS_PROGRESS:{value}", flush=True)
+
+
+# 每个部署模式都是独立进程，模块级进度不会跨操作残留。
+_progress = ProgressReporter()
+
+
+def report_progress(percent):
+    _progress.set(percent)
+
+
+def lock_metadata(lock):
+    """读取锁头部记录的包数量与总下载字节数；旧锁没有头部时返回 0。"""
+    count, size = 0, 0
+    if lock is None:
+        return count, size
+    try:
+        for line in lock.read_text().splitlines():
+            if line.startswith("# package-count:"):
+                count = int(line.split(":", 1)[1])
+            elif line.startswith("# total-size:"):
+                size = int(line.split(":", 1)[1])
+    except (OSError, ValueError):
+        return 0, 0
+    return count, size
+
+
+def run_progress(args, root, prefix=None, on_line=None, timeout=1800):
+    """流式执行命令，逐行回调、保留原始输出，并在超时后终止。"""
+    process = subprocess.Popen([str(a) for a in args], env=environment(root, prefix),
+                               text=True, bufsize=1, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT)
+    lines = queue.Queue()
+
+    def read():
+        for line in process.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=read, daemon=True).start()
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                line = lines.get(timeout=1)
+            except queue.Empty:
+                if time.monotonic() > deadline:
+                    process.kill()
+                    raise subprocess.TimeoutExpired([str(a) for a in args], timeout)
+                continue
+            if line is None:
+                break
+            if on_line is not None:
+                on_line(line)
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        code = process.wait()
+    finally:
+        process.stdout.close()
+    if code:
+        raise subprocess.CalledProcessError(code, [str(a) for a in args])
+
+
 def install_adb(root):
-    progress(3, "下载并校验 ADB")
+    progress(3, "准备并校验 ADB")
     destination = root / "tools"
     if (destination / "platform-tools/.complete").exists():
         return
     archive = root / "tmp" / ADB_ARCHIVE
-    if not archive.exists() or hashlib.sha256(archive.read_bytes()).hexdigest() != ADB_SHA256:
+    seeded = bundled(ADB_ARCHIVE)
+    if seeded.is_file():
+        # 包内文件仍需通过固定版本校验；直接读取，不复制到数据目录。
+        print("使用应用内打包的 ADB 安装包…", flush=True)
+        archive = seeded
+    elif not archive.exists() or hashlib.sha256(archive.read_bytes()).hexdigest() != ADB_SHA256:
         print("从腾讯国内镜像下载 Google ADB（校验官方固定版本）…", flush=True)
         run(["/usr/bin/curl", "--fail", "--location", "--proto", "=https", "--retry", "2",
              "--retry-all-errors", "--connect-timeout", "20", "--max-time", "300",
@@ -140,6 +233,11 @@ def fingerprint(source):
         if (source / name).exists():
             digest.update((source / name).read_bytes())
     digest.update((RESOURCES / "validate.py").read_bytes())
+    # 锁内容参与指纹：更新锁会得到新的环境目录，不影响已安装环境。
+    for name in ("conda-osx-arm64.lock", "requirements.lock.txt"):
+        lock = dependency_lock(name)
+        if lock is not None:
+            digest.update(lock.read_bytes())
     return digest.hexdigest()[:20]
 
 
@@ -149,15 +247,61 @@ def validate(root, source, prefix):
     run([prefix / "bin/python", RESOURCES / "validate.py", source], root, prefix, timeout=180)
 
 
-def install_pip(root, prefix, requirements):
-    progress(6, "安装 Python 运行依赖")
-    # 仅首次安装依赖，不读取用户 pip 配置或更换依赖版本。
+def seed_package_cache(root):
+    """复制应用内打包的 Conda 包与索引缓存，返回是否可用于离线解析。"""
+    packages = bundled("conda-pkgs")
+    if not bundled("conda-pkgs/.complete").is_file() or not packages.is_dir():
+        return False
+    destination = root / "cache/conda"
+    destination.mkdir(parents=True, exist_ok=True)
+    for entry in packages.iterdir():
+        target = destination / entry.name
+        if entry.name != ".complete" and entry.is_file() and not target.exists():
+            shutil.copy2(entry, target)
+    repodata = bundled("mamba")
+    if repodata.is_dir():
+        shutil.copytree(repodata, root / "mamba", dirs_exist_ok=True)
+    print("已载入应用内打包的运行依赖缓存…", flush=True)
+    return True
+
+
+def create_environment(root, prefix, specfile, offline=False, use_lock=True, on_line=None):
+    lock = dependency_lock("conda-osx-arm64.lock") if use_lock else None
+    command = [root / "bin/micromamba", "--no-rc"]
+    if offline:
+        command.append("--offline")
+    command += ["create", "-y", "-p", prefix]
+    if lock is not None:
+        # 显式锁包含完整 URL 与校验值，安装时不再调用求解器。
+        command += ["-f", lock]
+    else:
+        command += ["--override-channels", "-f", specfile]
+    if on_line is None:
+        run(command, root)
+    else:
+        run_progress(command, root, on_line=on_line)
+
+
+def pip_install(root, prefix, requirements, mirror=None, offline=False, hashes=False, on_line=None):
+    command = [prefix / "bin/python", "-m", "pip", "--isolated", "install"]
+    if offline:
+        command += ["--no-index", "--find-links", bundled("wheels")]
+    if mirror:
+        command += ["--index-url", mirror, "--retries", "2", "--timeout", "20"]
+    if hashes:
+        command.append("--require-hashes")
+    command += ["--disable-pip-version-check", "-r", requirements]
+    if on_line is None:
+        run(command, root, prefix)
+    else:
+        run_progress(command, root, prefix, on_line=on_line)
+
+
+def install_from_mirrors(root, prefix, requirements, hashes=False, on_line=None):
     for index, mirror in enumerate(PYPI_MIRRORS):
         print(f"从国内 PyPI 镜像安装首次运行依赖：{mirror}", flush=True)
         try:
-            run([prefix / "bin/python", "-m", "pip", "--isolated", "install",
-                 "--index-url", mirror, "--retries", "2", "--timeout", "20",
-                 "--disable-pip-version-check", "-r", requirements], root, prefix)
+            pip_install(root, prefix, requirements, mirror=mirror, hashes=hashes, on_line=on_line)
             return
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             if index == len(PYPI_MIRRORS) - 1:
@@ -165,10 +309,119 @@ def install_pip(root, prefix, requirements):
             print("当前镜像安装失败，尝试下一个国内镜像…", flush=True)
 
 
+def install_pip(root, prefix, requirements, reporter=None):
+    progress(6, "安装 Python 运行依赖")
+    # 仅首次安装依赖，不读取用户 pip 配置或更换依赖版本。
+    lock = dependency_lock("requirements.lock.txt")
+    total = 0
+    try:
+        source = lock if lock is not None else Path(requirements)
+        total = sum(1 for line in source.read_text().splitlines()
+                    if "==" in line and not line.lstrip().startswith("#"))
+    except OSError:
+        total = 0
+    collected = 0
+
+    def on_line(line):
+        nonlocal collected
+        if reporter is None:
+            return
+        if line.startswith("Collecting "):
+            collected += 1
+            reporter.set(60 + int(30 * min(collected / max(total, 1), 1)))
+        elif line.startswith("Installing collected packages"):
+            reporter.set(92)
+        elif line.startswith("Successfully installed"):
+            reporter.set(94)
+
+    callback = on_line if reporter is not None else None
+    wheels = bundled("wheels")
+    if wheels.is_dir():
+        print("使用应用内打包的 Python 依赖…", flush=True)
+        try:
+            pip_install(root, prefix, lock or requirements, offline=True,
+                        hashes=lock is not None, on_line=callback)
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            print("应用内依赖不完整，改用在线镜像…", flush=True)
+    try:
+        install_from_mirrors(root, prefix, lock or requirements, hashes=lock is not None,
+                             on_line=callback)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        if lock is None:
+            raise
+        print("锁定的 Python 依赖不可用，回退到求解安装…", flush=True)
+        install_from_mirrors(root, prefix, requirements, on_line=callback)
+
+
+def watch_conda_cache(root, total, reporter, stop):
+    """安装 Conda 依赖时按包缓存体积估算下载百分比。"""
+    cache = root / "cache/conda"
+    while not stop.wait(0.4):
+        try:
+            size = sum(path.stat().st_size for path in cache.iterdir() if path.is_file())
+        except OSError:
+            continue
+        reporter.set(10 + int(45 * min(size / total, 1)))
+
+
+def directory_size(path):
+    total = 0
+    for entry in path.rglob("*"):
+        try:
+            if entry.is_file() and not entry.is_symlink():
+                total += entry.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def slim_environment(prefix, label="运行环境"):
+    """删除运行期不需要的编译产物、文档和测试，尽量减小部署占用。
+
+    只处理确定不会参与运行的文件：C 头文件、静态库、包测试、字节码缓存和
+    安装后才能删掉的 pip。任何删除失败都跳过，不影响启动。
+    """
+    before = directory_size(prefix)
+    targets = []
+    for name in ("include", "share/man", "share/doc", "share/info", "man", "info"):
+        targets.append(prefix / name)
+    for pattern in ("lib/python*/test", "lib/python*/config-*", "lib/python*/ensurepip"):
+        targets.extend(prefix.glob(pattern))
+    for packages in prefix.glob("lib/python*/site-packages"):
+        targets.extend(packages.glob("*/tests"))
+        targets.extend(packages.glob("*/test"))
+        targets.extend([packages / "pip", packages / "wheel"])
+    targets.extend(prefix.rglob("__pycache__"))
+    root = prefix.resolve()
+    for target in targets:
+        try:
+            if not target.is_dir() or target.is_symlink():
+                continue
+            # 防止异常符号链接把删除操作带出环境目录。
+            if root not in target.resolve().parents:
+                continue
+            shutil.rmtree(target)
+        except OSError:
+            continue
+    for pattern in ("**/*.pyc", "**/*.pyo", "lib/*.a", "lib/*.la"):
+        for path in prefix.glob(pattern):
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                path.unlink()
+            except OSError:
+                continue
+    saved = max(0, before - directory_size(prefix))
+    print(f"已精简{label}，释放 {saved // (1024 * 1024)} MB", flush=True)
+    return saved
+
+
 def install_environment(root, source):
     if (root / "active.json").exists() or (root / "environment.json").exists():
         raise RuntimeError("环境已保存，禁止自动重装或升级依赖")
     progress(5, "创建 ARM64 独立环境")
+    report_progress(10)
     key = fingerprint(source)
     # 原生库包含绝对路径，安装后不能移动 Conda 环境。
     prefix = root / "environments" / key
@@ -179,12 +432,53 @@ def install_environment(root, source):
         specfile, reqfile = root / "tmp" / f"{key}.yml", root / "tmp" / f"{key}.txt"
         specfile.write_text(yaml.safe_dump(spec))
         reqfile.write_text("\n".join(requirements) + "\n")
-        print("创建完整 ARM64 运行环境（首次需要下载依赖）…", flush=True)
-        run([root / "bin/micromamba", "--no-rc", "create", "-y", "-p", prefix,
-             "--override-channels", "-f", specfile], root)
-        install_pip(root, prefix, reqfile)
+        print("创建完整 ARM64 运行环境（优先使用锁定的依赖）…", flush=True)
+        offline = seed_package_cache(root)
+        conda_lock = dependency_lock("conda-osx-arm64.lock")
+        package_count, download_size = lock_metadata(conda_lock)
+        linked = 0
+
+        def on_conda_line(line):
+            nonlocal linked
+            if line.startswith("Linking "):
+                linked += 1
+                if package_count:
+                    _progress.set(56 + int(2 * min(linked / package_count, 1)))
+        # 先试锁定版本（可离线），再试锁定版本在线，最后才退回求解器。
+        attempts = [(True, offline)]
+        if offline:
+            attempts.append((True, False))
+        if conda_lock is not None:
+            attempts.append((False, False))
+        for index, (use_lock, use_offline) in enumerate(attempts):
+            stop = threading.Event()
+            watcher = None
+            if download_size:
+                watcher = threading.Thread(target=watch_conda_cache,
+                                           args=(root, download_size, _progress, stop), daemon=True)
+                watcher.start()
+            try:
+                create_environment(root, prefix, specfile, use_offline, use_lock,
+                                   on_line=on_conda_line)
+                break
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                if index == len(attempts) - 1:
+                    raise
+                print("应用内依赖不完整，改用在线镜像重试…" if use_offline
+                      else "锁定的 Conda 版本不可用，改用求解器解析…", flush=True)
+                if prefix.exists():
+                    prefix.rename(prefix.with_name(key + ".incomplete-" + uuid.uuid4().hex[:8]))
+            finally:
+                stop.set()
+                if watcher is not None:
+                    watcher.join(timeout=1)
+        report_progress(58)
+        install_pip(root, prefix, reqfile, reporter=_progress)
+        report_progress(95)
         run([prefix / "bin/python", "-m", "pip", "check"], root, prefix)
+        report_progress(96)
         validate(root, source, prefix)
+        slim_environment(prefix)
         (prefix / ".complete").touch()
     else:
         validate(root, source, prefix)
@@ -255,10 +549,13 @@ def clean_download_cache(root):
     if state.get("cacheCleaned") is True:
         return
     print("清理首次安装下载缓存…", flush=True)
-    allowed = [root / "cache", root / "tmp", root / "mamba"]
+    # 同时清理 HOME 下的 pip / 构建缓存，避免首次安装后残留。
+    allowed = [root / "cache", root / "tmp", root / "mamba",
+               root / "home/Library/Caches", root / "home/.cache", root / "home/.conda/pkgs"]
+    root_resolved = root.resolve()
     for path in allowed:
         resolved = path.resolve()
-        if resolved.parent != root.resolve():
+        if resolved == root_resolved or root_resolved not in resolved.parents:
             raise RuntimeError("拒绝清理运行目录之外的缓存")
         if path.exists():
             shutil.rmtree(path)
@@ -386,6 +683,22 @@ def clean_core_history(root, repository):
         print(f"核心已保存，Git 历史清理稍后重试：{error}", flush=True)
 
 
+def bundled_core_bundle():
+    bundle = bundled("core.bundle")
+    return bundle if bundle.is_file() else None
+
+
+def clone_bundled_core(root, bundle, checkout):
+    """从应用内 Git 打包文件检出核心；仅对本次命令放开 file 协议。"""
+    from git_download import download
+    git = root / "bootstrap/bin/git"
+    print("从应用内打包的核心快照检出…", flush=True)
+    download([git, "clone", "--quiet", "--branch", BRANCH, bundle, checkout],
+             dict(environment(root), GIT_ALLOW_PROTOCOL="file"))
+    run([git, "-C", checkout, "remote", "set-url", "origin", UPSTREAM], root)
+    (checkout / ".git/alas-seed").touch()
+
+
 def install_remote_core(root):
     from git_download import download
     progress(4, "从远程下载 ALAS 核心")
@@ -396,28 +709,38 @@ def install_remote_core(root):
         checkout = root / "core-download"
         if checkout.is_symlink():
             raise RuntimeError("下载目录异常，请检查安装日志")
+        bundle = bundled_core_bundle()
+        seeded = (checkout / ".git/alas-seed").is_file()
+        if not (checkout / ".git/HEAD").is_file() and bundle is not None:
+            try:
+                clone_bundled_core(root, bundle, checkout)
+                seeded = True
+            except (OSError, subprocess.SubprocessError) as error:
+                print(f"应用内核心快照不可用，改用在线下载：{error}", flush=True)
+                shutil.rmtree(checkout, ignore_errors=True)
         if not (checkout / ".git/HEAD").is_file():
             run([git, "init", checkout], root, timeout=30)
-        remote = run([git, "ls-remote", "--exit-code", UPSTREAM,
-                      f"refs/heads/{BRANCH}"], root, capture=True, timeout=30).split()[0]
-        reference = f"refs/remotes/origin/{BRANCH}"
-        try:
-            received = run([git, "-C", checkout, "rev-parse", "--verify", "--quiet", reference],
-                           root, capture=True, timeout=30)
-        except subprocess.CalledProcessError:
-            received = None
-        run([git, "-C", checkout, "config", "remote.origin.url", UPSTREAM], root, timeout=30)
-        if received != remote:
-            print("继续下载核心，复用已完成对象；等待服务器打包…", flush=True)
-            download([git, "-C", checkout, "fetch", "--progress", "--depth", "1",
-                      "--no-tags", "origin", f"+refs/heads/{BRANCH}:{reference}"], environment(root))
-        fetched = run([git, "-C", checkout, "rev-parse", "--verify", reference],
-                      root, capture=True, timeout=30)
-        if fetched != remote:
-            raise RuntimeError("上游提交在检查与下载期间发生变化，请重试")
-        print("核心对象已下载，正在检出文件…", flush=True)
-        download([git, "-C", checkout, "checkout", "--progress", "--force", "-B", BRANCH,
-                  reference], environment(root))
+        if not seeded:
+            remote = run([git, "ls-remote", "--exit-code", UPSTREAM,
+                          f"refs/heads/{BRANCH}"], root, capture=True, timeout=30).split()[0]
+            reference = f"refs/remotes/origin/{BRANCH}"
+            try:
+                received = run([git, "-C", checkout, "rev-parse", "--verify", "--quiet", reference],
+                               root, capture=True, timeout=30)
+            except subprocess.CalledProcessError:
+                received = None
+            run([git, "-C", checkout, "config", "remote.origin.url", UPSTREAM], root, timeout=30)
+            if received != remote:
+                print("继续下载核心，复用已完成对象；等待服务器打包…", flush=True)
+                download([git, "-C", checkout, "fetch", "--progress", "--depth", "1",
+                          "--no-tags", "origin", f"+refs/heads/{BRANCH}:{reference}"], environment(root))
+            fetched = run([git, "-C", checkout, "rev-parse", "--verify", reference],
+                          root, capture=True, timeout=30)
+            if fetched != remote:
+                raise RuntimeError("上游提交在检查与下载期间发生变化，请重试")
+            print("核心对象已下载，正在检出文件…", flush=True)
+            download([git, "-C", checkout, "checkout", "--progress", "--force", "-B", BRANCH,
+                      reference], environment(root))
         if not (checkout / ".git/HEAD").is_file() or not (checkout / "gui.py").is_file():
             raise RuntimeError("下载的核心不完整，请重试")
         checkout.rename(source)
@@ -438,8 +761,23 @@ def initial_core(root):
             return source, saved["revision"]
         raise RuntimeError("首次安装记录中的核心缺失或损坏，请检查安装日志")
     source, revision = install_remote_core(root)
-    atomic_json(pending, {"repository": str(source), "revision": revision})
+    record = {"repository": str(source), "revision": revision}
+    if (source / ".git/alas-seed").is_file():
+        record["bundled"] = True
+        print("已从应用内核心快照安装核心，本次不访问上游。", flush=True)
+    atomic_json(pending, record)
     return source, revision
+
+
+def seeded_core(root):
+    """首次安装的核心是否来自应用内快照。"""
+    record = root / "installation.json"
+    if not record.is_file():
+        return False
+    try:
+        return json.loads(record.read_text()).get("bundled") is True
+    except (OSError, ValueError):
+        return False
 
 
 def refresh_initial_core(root, source, revision):
@@ -467,6 +805,7 @@ def refresh_initial_core(root, source, revision):
 
 def prepare(root):
     # 启动和手动更新只检查核心，复用首次安装的工具与依赖。
+    report_progress(1)
     active_path = root / "active.json"
     active = json.loads(active_path.read_text()) if active_path.exists() else None
     prefix = saved_environment(root, active)
@@ -486,6 +825,7 @@ def prepare(root):
             return
     elif prefix is None:
         install_adb(root)
+        report_progress(5)
     old_revision = None
     if active:
         release = Path(active["repository"])
@@ -493,7 +833,12 @@ def prepare(root):
         old_revision, revision = begin_core_update(root, release, revision)
     else:
         release, revision = initial_core(root)
-        release, revision = refresh_initial_core(root, release, revision)
+        if seeded_core(root):
+            # 包内快照是随 App 发布的固定版本，首次启动无需联网校验。
+            print("使用应用内核心快照，跳过首次在线版本检查", flush=True)
+        else:
+            release, revision = refresh_initial_core(root, release, revision)
+    report_progress(9)
     if prefix is None:
         prefix = install_environment(root, release)
         # 立即记录已安装环境，避免后续写入失败导致重复安装。
@@ -508,6 +853,7 @@ def prepare(root):
             validate(root, release, prefix)
         progress(8, "保存 macOS 部署配置")
         attach_data(root, release)
+        report_progress(98)
         if active:
             finish_core_update(root, release, old_revision, revision)
         new = {"repository": str(release), "environment": str(prefix), "revision": revision}
@@ -533,9 +879,12 @@ def prepare(root):
             configure_deploy(release, root, prefix)
         raise
     if not active:
+        slim_environment(root / "bootstrap", label="工具链")
         freeze_environment(root, prefix)
         clean_download_cache(root)
     clean_core_history(root, release)
+    report_progress(99)
+    print(f"部署占用：{directory_size(root) // (1024 * 1024)} MB", flush=True)
     print("核心更新完成；运行环境未改变，上一版本可回退。" if active else "完整运行环境已就绪", flush=True)
 
 

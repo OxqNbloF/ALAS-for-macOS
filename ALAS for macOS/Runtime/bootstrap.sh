@@ -34,13 +34,24 @@ if [[ -f "$ROOT/active.json" || -f "$ROOT/environment.json" ]]; then
     exec "$ROOT/bootstrap/bin/python" "$RESOURCES/runtime.py" "$MODE" "$ROOT"
 fi
 [[ "$MODE" = prepare ]] || { echo '请先完成首次环境配置。'; exit 1; }
-echo '@@ALAS_STAGE:1:下载并校验环境管理器' 
+echo '@@ALAS_STAGE:1:准备环境管理器'
 MAMBA="$ROOT/bin/micromamba"
 # 保留旧失败文件并重新下载
 if [[ -f "$MAMBA" ]] && ! "$MAMBA" --version; then
     REJECTED="$(mktemp -d "$ROOT/bin/rejected.XXXXXX")"
     /bin/mv "$MAMBA" "$REJECTED/micromamba"
     echo '旧环境管理器无法执行，已保留原件；将重新下载并校验。'
+fi
+# 包体内的种子由 App 签名保护，复制后仍要能执行才采用。
+BUNDLED_MAMBA="$RESOURCES/bundled/micromamba"
+if [[ ! -x "$MAMBA" && -f "$BUNDLED_MAMBA" ]]; then
+    echo '安装应用内打包的环境管理器…'
+    /bin/cp "$BUNDLED_MAMBA" "$MAMBA"
+    chmod 700 "$MAMBA"
+    if ! "$MAMBA" --version >/dev/null 2>&1; then
+        echo '应用内环境管理器不可用，改用在线下载。'
+        /bin/rm -f "$MAMBA"
+    fi
 fi
 if [[ ! -x "$MAMBA" ]]; then
     echo '下载并校验 ARM64 环境管理器…'

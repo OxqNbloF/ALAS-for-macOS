@@ -1,11 +1,14 @@
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 import sys
 import subprocess
 from unittest.mock import patch
+import zipfile
 
 RUNTIME = Path(__file__).resolve().parents[1] / "ALAS for macOS/Runtime"
 sys.path.insert(0, str(RUNTIME))
@@ -16,6 +19,7 @@ spec = importlib.util.spec_from_file_location("runtime", RUNTIME / "runtime.py")
 runtime = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runtime)
 REAL_FREEZE_ENVIRONMENT = runtime.freeze_environment
+REAL_INSTALL_ADB = runtime.install_adb
 
 
 class RuntimeTests(unittest.TestCase):
@@ -36,6 +40,12 @@ class RuntimeTests(unittest.TestCase):
         revision = patch.object(runtime, "git_revision", return_value=None)
         revision.start()
         self.addCleanup(revision.stop)
+        # 进度流式执行在测试中复用 run 的 mock，避免启动真实子进程。
+        stream = patch.object(runtime, "run_progress",
+                              side_effect=lambda args, root, prefix=None, on_line=None, timeout=1800:
+                              runtime.run(args, root, prefix))
+        stream.start()
+        self.addCleanup(stream.stop)
         for folder in ("data/config", "tmp", "environments"):
             (self.root / folder).mkdir(parents=True)
 
@@ -247,7 +257,8 @@ class RuntimeTests(unittest.TestCase):
         active, prefix = self.installed()
         runtime.atomic_json(self.root / "environment.json", {
             "environment": str(prefix), "locked": True, "cacheCleaned": False})
-        for name in ("cache/pip/download", "tmp/archive.zip", "mamba/pkgs/index"):
+        for name in ("cache/pip/download", "tmp/archive.zip", "mamba/pkgs/index",
+                     "home/Library/Caches/pip/wheel", "home/.cache/build"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("cache")
@@ -258,6 +269,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(core.exists())
         self.assertTrue((prefix / ".complete").exists())
         self.assertFalse((self.root / "mamba").exists())
+        self.assertFalse((self.root / "home/Library/Caches").exists())
+        self.assertFalse((self.root / "home/.cache").exists())
         self.assertEqual(list((self.root / "cache").iterdir()), [])
         self.assertEqual(list((self.root / "tmp").iterdir()), [])
         state = json.loads((self.root / "environment.json").read_text())
@@ -286,8 +299,37 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o222, 0)
         self.assertTrue(json.loads((self.root / "environment.json").read_text())["frozen"])
 
+    def test_slim_environment_removes_only_build_artifacts(self):
+        prefix = self.root / "env"
+        files = {
+            "include/header.h": "x",
+            "lib/libopenblas.a": "x" * 100,
+            "lib/libmxnet.dylib": "keep",
+            "lib/python3.8/test/test_math.py": "x",
+            "share/doc/readme": "x",
+            "lib/python3.8/site-packages/pkg/__init__.py": "keep",
+            "lib/python3.8/site-packages/pkg/__pycache__/mod.cpython-38.pyc": "x",
+            "lib/python3.8/site-packages/pkg/tests/test_pkg.py": "x",
+            "lib/python3.8/site-packages/pip/__init__.py": "x",
+            "lib/python3.8/site-packages/wheel/__init__.py": "x",
+        }
+        for name, content in files.items():
+            path = prefix / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        saved = runtime.slim_environment(prefix)
+        self.assertGreater(saved, 0)
+        for removed in ("include", "lib/libopenblas.a", "lib/python3.8/test", "share/doc",
+                        "lib/python3.8/site-packages/pkg/__pycache__",
+                        "lib/python3.8/site-packages/pkg/tests",
+                        "lib/python3.8/site-packages/pip", "lib/python3.8/site-packages/wheel"):
+            self.assertFalse((prefix / removed).exists(), removed)
+        self.assertTrue((prefix / "lib/libmxnet.dylib").is_file())
+        self.assertTrue((prefix / "lib/python3.8/site-packages/pkg/__init__.py").is_file())
+
     def test_first_install_pip_uses_domestic_fallback_without_version_changes(self):
-        with patch.object(runtime, "run", side_effect=[subprocess.CalledProcessError(1, "pip"), None]) as run:
+        with patch.object(runtime, "dependency_lock", return_value=None), patch.object(
+                runtime, "run", side_effect=[subprocess.CalledProcessError(1, "pip"), None]) as run:
             runtime.install_pip(self.root, self.root / "engine", self.root / "requirements.txt")
         self.assertEqual(run.call_count, 2)
         for index, call in enumerate(run.call_args_list):
@@ -490,6 +532,263 @@ class RuntimeTests(unittest.TestCase):
             self.assertRegex(text, r"(?m)^    " + key + r": ")
             self.assertNotRegex(text, r"(?m)^" + key + r": ")
         self.assertIn("Language: ja-JP", text)
+
+    def test_bundled_adb_skips_download_and_keeps_hash_check(self):
+        bundle = self.root / "resources/bundled"
+        bundle.mkdir(parents=True)
+        archive = bundle / runtime.ADB_ARCHIVE
+        with zipfile.ZipFile(archive, "w") as package:
+            for name in ("adb", "lib64/libc++.dylib", "NOTICE.txt", "source.properties"):
+                package.writestr("platform-tools/" + name, "test")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        with patch.object(runtime, "RESOURCES", self.root / "resources"), patch.object(
+                runtime, "ADB_SHA256", digest), patch.object(runtime, "run") as run:
+            REAL_INSTALL_ADB(self.root)
+        run.assert_not_called()
+        self.assertTrue((self.root / "tools/platform-tools/adb").is_file())
+
+    def test_bundled_adb_with_wrong_hash_is_rejected(self):
+        bundle = self.root / "resources/bundled"
+        bundle.mkdir(parents=True)
+        (bundle / runtime.ADB_ARCHIVE).write_bytes(b"not a zip")
+        with patch.object(runtime, "RESOURCES", self.root / "resources"), patch.object(runtime, "run"):
+            with self.assertRaisesRegex(RuntimeError, "SHA256"):
+                REAL_INSTALL_ADB(self.root)
+
+    def test_bundled_core_clones_without_network(self):
+        upstream = self.source("upstream")
+        git = "/usr/bin/git"
+        subprocess.run([git, "init", "-q", "-b", "master", str(upstream)], check=True)
+        subprocess.run([git, "-C", str(upstream), "add", "."], check=True)
+        subprocess.run([git, "-C", str(upstream), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.invalid", "commit", "-qm", "seed"], check=True)
+        bundle = self.root / "resources/bundled/core.bundle"
+        bundle.parent.mkdir(parents=True)
+        subprocess.run([git, "-C", str(upstream), "bundle", "create", str(bundle),
+                        "HEAD", "refs/heads/master"], check=True, capture_output=True)
+        bootstrap = self.root / "bootstrap/bin"
+        bootstrap.mkdir(parents=True)
+        (bootstrap / "git").symlink_to(git)
+        calls = []
+        real_run = runtime.run
+        def record(args, *positional, **keywords):
+            calls.append([str(item) for item in args])
+            return real_run(args, *positional, **keywords)
+        with patch.object(runtime, "RESOURCES", self.root / "resources"), patch.object(
+                runtime, "run", side_effect=record):
+            source, revision = runtime.install_remote_core(self.root)
+        self.assertEqual((source / "gui.py").read_text(), "")
+        self.assertTrue((source / ".git/alas-seed").is_file())
+        self.assertEqual(revision, subprocess.check_output(
+            [git, "-C", str(upstream), "rev-parse", "HEAD"], text=True).strip())
+        joined = [" ".join(command) for command in calls]
+        self.assertFalse(any("ls-remote" in command for command in joined))
+        self.assertFalse(any("fetch" in command for command in joined))
+        self.assertTrue(any("remote" in command and "set-url" in command for command in joined))
+
+    def test_seeded_install_skips_online_version_check(self):
+        candidate = self.source()
+        runtime.atomic_json(self.root / "installation.json", {
+            "repository": str(candidate), "revision": "seed", "bundled": True})
+        with patch.object(runtime, "initial_core", return_value=(candidate, "seed")), patch.object(
+                runtime, "refresh_initial_core") as refresh, patch.object(
+                runtime, "install_environment", return_value=self.root / "engine"), patch.object(
+                runtime, "validate"):
+            runtime.prepare(self.root)
+        refresh.assert_not_called()
+        self.assertEqual(json.loads((self.root / "active.json").read_text())["revision"], "seed")
+
+    def test_seeded_core_clone_marks_first_install_record(self):
+        source = self.source("core")
+        (source / ".git").mkdir()
+        (source / ".git/alas-seed").touch()
+        with patch.object(runtime, "install_remote_core", return_value=(source, "hash")):
+            runtime.initial_core(self.root)
+        record = json.loads((self.root / "installation.json").read_text())
+        self.assertTrue(record["bundled"])
+        self.assertEqual(record["revision"], "hash")
+        self.assertTrue(runtime.seeded_core(self.root))
+
+    def test_bundled_package_cache_is_copied_into_data_root(self):
+        packages = self.root / "resources/bundled/conda-pkgs"
+        packages.mkdir(parents=True)
+        (packages / "a.conda").write_text("pkg")
+        (packages / ".complete").touch()
+        repodata = self.root / "resources/bundled/mamba/pkgs/cache"
+        repodata.mkdir(parents=True)
+        (repodata / "x.json").write_text("{}")
+        with patch.object(runtime, "RESOURCES", self.root / "resources"):
+            self.assertTrue(runtime.seed_package_cache(self.root))
+        self.assertEqual((self.root / "cache/conda/a.conda").read_text(), "pkg")
+        self.assertTrue((self.root / "mamba/pkgs/cache/x.json").is_file())
+        self.assertFalse((self.root / "cache/conda/.complete").exists())
+
+    def test_partial_package_cache_is_ignored(self):
+        packages = self.root / "resources/bundled/conda-pkgs"
+        packages.mkdir(parents=True)
+        (packages / "a.conda").write_text("pkg")
+        with patch.object(runtime, "RESOURCES", self.root / "resources"):
+            self.assertFalse(runtime.seed_package_cache(self.root))
+        self.assertFalse((self.root / "cache/conda").exists())
+
+    def test_offline_environment_creation_falls_back_to_online(self):
+        commands = []
+        def fake_run(args, *positional, **keywords):
+            commands.append([str(item) for item in args])
+            if "-p" in args:
+                prefix = Path(args[args.index("-p") + 1])
+                (prefix / "bin").mkdir(parents=True, exist_ok=True)
+            if "--offline" in args:
+                raise subprocess.CalledProcessError(1, args)
+        with patch.object(runtime, "seed_package_cache", return_value=True), patch.object(
+                runtime, "fingerprint", return_value="key"), patch.object(
+                runtime, "specification", return_value=({"channels": [], "dependencies": []}, [])), patch.object(
+                runtime, "install_pip"), patch.object(runtime, "validate"), patch.object(
+                runtime, "run", side_effect=fake_run):
+            prefix = runtime.install_environment(self.root, self.source())
+        self.assertIn("--offline", commands[0])
+        self.assertNotIn("--offline", commands[1])
+        self.assertTrue((prefix / ".complete").is_file())
+        # 离线失败留下的半成品会被改名保留，便于排错，不参与后续启动。
+        self.assertTrue(any(path.name.startswith("key.incomplete-")
+                            for path in (self.root / "environments").iterdir()))
+
+    def test_bundled_wheels_install_without_index(self):
+        wheels = self.root / "resources/bundled/wheels"
+        wheels.mkdir(parents=True)
+        with patch.object(runtime, "dependency_lock", return_value=None), patch.object(
+                runtime, "RESOURCES", self.root / "resources"), patch.object(
+                runtime, "run", return_value=None) as run:
+            runtime.install_pip(self.root, self.root / "engine", self.root / "requirements.txt")
+        command = run.call_args.args[0]
+        self.assertIn("--no-index", command)
+        self.assertIn("--find-links", command)
+        self.assertEqual(run.call_count, 1)
+
+    def test_conda_lock_is_preferred_over_solver(self):
+        locks = self.root / "resources/locks"
+        locks.mkdir(parents=True)
+        lock = locks / "conda-osx-arm64.lock"
+        lock.write_text("@EXPLICIT\n")
+        with patch.object(runtime, "RESOURCES", self.root / "resources"), patch.object(
+                runtime, "run") as run:
+            runtime.create_environment(self.root, self.root / "engine", self.root / "spec.yml")
+        command = run.call_args.args[0]
+        self.assertIn("-f", command)
+        self.assertIn(lock, command)
+        self.assertNotIn("--override-channels", command)
+
+    def test_conda_lock_falls_back_to_solver(self):
+        locks = self.root / "resources/locks"
+        locks.mkdir(parents=True)
+        (locks / "conda-osx-arm64.lock").write_text("@EXPLICIT\n")
+        calls = []
+        def fake_create(root, prefix, specfile, offline=False, use_lock=True, on_line=None):
+            calls.append((use_lock, offline))
+            (prefix / "bin").mkdir(parents=True, exist_ok=True)
+            if use_lock:
+                raise subprocess.CalledProcessError(1, "micromamba")
+        with patch.object(runtime, "RESOURCES", self.root / "resources"), patch.object(
+                runtime, "create_environment", side_effect=fake_create), patch.object(
+                runtime, "seed_package_cache", return_value=False), patch.object(
+                runtime, "fingerprint", return_value="key"), patch.object(
+                runtime, "specification", return_value=({"channels": [], "dependencies": []}, [])), patch.object(
+                runtime, "install_pip"), patch.object(runtime, "validate"), patch.object(runtime, "run"):
+            runtime.install_environment(self.root, self.source())
+        self.assertEqual(calls, [(True, False), (False, False)])
+
+    def test_locked_pip_install_requires_hashes(self):
+        locks = self.root / "resources/locks"
+        locks.mkdir(parents=True)
+        lock = locks / "requirements.lock.txt"
+        lock.write_text("a==1 --hash=sha256:" + "0" * 64 + "\n")
+        with patch.object(runtime, "RESOURCES", self.root / "resources"), patch.object(
+                runtime, "run", return_value=None) as run:
+            runtime.install_pip(self.root, self.root / "engine", self.root / "requirements.txt")
+        command = run.call_args.args[0]
+        self.assertIn("--require-hashes", command)
+        self.assertEqual(command[-1], lock)
+
+    def test_locked_pip_falls_back_to_unhashed(self):
+        requirements = self.root / "requirements.txt"
+        requirements.write_text("a==1\n")
+        lock = self.root / "pip.lock"
+        lock.write_text("a==1 --hash=sha256:" + "0" * 64 + "\n")
+        with patch.object(runtime, "dependency_lock",
+                          side_effect=lambda name: lock if name == "requirements.lock.txt" else None), patch.object(
+                runtime, "install_from_mirrors",
+                side_effect=[subprocess.CalledProcessError(1, "pip"), None]) as mirrors:
+            runtime.install_pip(self.root, self.root / "engine", requirements)
+        self.assertTrue(mirrors.call_args_list[0].kwargs["hashes"])
+        self.assertEqual(mirrors.call_args_list[0].args[2], lock)
+        self.assertFalse(mirrors.call_args_list[1].kwargs.get("hashes", False))
+        self.assertEqual(mirrors.call_args_list[1].args[2], requirements)
+
+    def test_fingerprint_includes_lock_files(self):
+        resources = self.root / "resources"
+        locks = resources / "locks"
+        locks.mkdir(parents=True)
+        (resources / "validate.py").write_text("")
+        lock = locks / "requirements.lock.txt"
+        lock.write_text("a==1 --hash=sha256:" + "0" * 64 + "\n")
+        source = self.source()
+        with patch.object(runtime, "RESOURCES", resources), patch.object(
+                runtime, "specification", return_value=({"dependencies": []}, [])):
+            first = runtime.fingerprint(source)
+            lock.write_text("b==1 --hash=sha256:" + "1" * 64 + "\n")
+            second = runtime.fingerprint(source)
+        self.assertNotEqual(first, second)
+
+    def test_progress_reporter_is_monotonic_and_bounded(self):
+        reporter = runtime.ProgressReporter()
+        reporter.set(10)
+        reporter.set(5)
+        reporter.set(120)
+        reporter.set(100)
+        self.assertEqual(reporter.value, 100)
+
+    def test_lock_metadata_reads_generated_headers(self):
+        lock = self.root / "conda.lock"
+        lock.write_text("# package-count: 136\n# total-size: 12345\n@EXPLICIT\n")
+        self.assertEqual(runtime.lock_metadata(lock), (136, 12345))
+        self.assertEqual(runtime.lock_metadata(None), (0, 0))
+
+    def test_install_environment_uses_streaming_progress(self):
+        calls = []
+        def fake_create(root, prefix, specfile, offline=False, use_lock=True, on_line=None):
+            calls.append(on_line is not None)
+            (prefix / "bin").mkdir(parents=True, exist_ok=True)
+        with patch.object(runtime, "create_environment", side_effect=fake_create), patch.object(
+                runtime, "specification", return_value=({"channels": [], "dependencies": []}, [])), patch.object(
+                runtime, "fingerprint", return_value="key"), patch.object(
+                runtime, "seed_package_cache", return_value=False), patch.object(
+                runtime, "install_pip"), patch.object(runtime, "validate"), patch.object(runtime, "run"):
+            runtime.install_environment(self.root, self.source())
+        self.assertEqual(calls, [True])
+
+    def test_bootstrap_prefers_bundled_micromamba(self):
+        resources = self.root / "resources"
+        (resources / "bundled").mkdir(parents=True)
+        mamba = resources / "bundled/micromamba"
+        mamba.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = \"--version\" ]; then echo 2.3.2; exit 0; fi\n"
+            "previous=''\n"
+            "for argument in \"$@\"; do\n"
+            "  if [ \"$previous\" = \"-p\" ]; then prefix=\"$argument\"; fi\n"
+            "  previous=\"$argument\"\n"
+            "done\n"
+            "mkdir -p \"$prefix/bin\"\n"
+            "printf '#!/bin/sh\\necho bundled-runtime-ready\\n' > \"$prefix/bin/python\"\n"
+            "chmod 700 \"$prefix/bin/python\"\n")
+        mamba.chmod(0o700)
+        shutil.copy(RUNTIME / "bootstrap.sh", resources / "bootstrap.sh")
+        (resources / "runtime.py").write_text("print('unused')\n")
+        result = subprocess.run(["/bin/bash", str(resources / "bootstrap.sh"), "prepare", str(self.root)],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("安装应用内打包的环境管理器", result.stdout)
+        self.assertIn("bundled-runtime-ready", result.stdout)
 
 
 if __name__ == "__main__":

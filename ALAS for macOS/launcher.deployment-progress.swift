@@ -7,10 +7,20 @@ struct DeploymentProgress {
     private(set) var title = "准备环境管理器"
     private(set) var detail = "正在准备应用专属目录…"
     private(set) var completed = false
+    private(set) var percent: Int?
     private var buffer = Data()
 
-    var fraction: Double { Double(completed ? Self.totalSteps : step - 1) / Double(Self.totalSteps) }
-    var label: String { completed ? "部署完成" : "步骤 \(step) / \(Self.totalSteps)" }
+    // 优先使用安装脚本上报的真实百分比，未上报时退回步骤进度。
+    var fraction: Double {
+        if completed { return 1 }
+        if let percent { return Double(percent) / 100 }
+        return Double(step - 1) / Double(Self.totalSteps)
+    }
+    var label: String {
+        if completed { return "100%" }
+        if let percent { return "\(percent)%" }
+        return "步骤 \(step) / \(Self.totalSteps)"
+    }
 
     // 推进部署步骤
     mutating func advance(_ step: Int, title: String) {
@@ -40,6 +50,12 @@ struct DeploymentProgress {
                 let parts = line.split(separator: ":", maxSplits: 2)
                 if parts.count == 3, let stage = Int(parts[1]) {
                     advance(stage, title: String(parts[2]))
+                }
+            } else if line.hasPrefix("@@ALAS_PROGRESS:") {
+                // 百分比只增不减，避免重试或缓存命中时回退。
+                if let value = Int(line.dropFirst("@@ALAS_PROGRESS:".count)) {
+                    let clamped = min(max(value, 0), 100)
+                    if clamped > (percent ?? -1) { percent = clamped }
                 }
             } else if !completed, !line.isEmpty,
                       ["Receiving objects:", "Resolving deltas:", "Enumerating objects:",

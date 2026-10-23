@@ -31,7 +31,6 @@ final class AwakeController: ObservableObject {
     @Published private(set) var holding = false
     @Published private(set) var batteryPercent: Int?
     @Published private(set) var onBattery = false
-    @Published private(set) var clamshellDisabled = false
     @Published private(set) var status = "任务未运行"
     private(set) var isTaskRunning = false
 
@@ -90,25 +89,7 @@ final class AwakeController: ObservableObject {
         endpoint = nil; token = ""; pollFailures = 0
     }
 
-    // 读取系统当前的合盖休眠开关，避免界面与真实状态不一致。
-    func refreshSystemSleepState() {
-        clamshellDisabled = Self.systemSleepDisabled() ?? clamshellDisabled
-    }
-
-    // 由用户显式开关合盖休眠；需要管理员授权。
-    func setClamshell(_ disabled: Bool) {
-        guard disabled != clamshellDisabled else { return }
-        status = disabled ? "正在请求管理员授权…" : "正在恢复合盖休眠…"
-        Task {
-            let ok = await Self.applySystemSleep(disabled: disabled)
-            clamshellDisabled = ok ? disabled : clamshellDisabled
-            status = ok ? (disabled ? "合盖后保持运行已开启" : "已恢复合盖休眠")
-                        : "合盖设置未生效（需要管理员授权）"
-            evaluate()
-        }
-    }
-
-    // 释放闲置休眠断言。合盖设置是持久项，退出应用时保持不变。
+    // 释放闲置休眠断言。
     func stop() async {
         stopMonitoring()
         detach()
@@ -192,41 +173,5 @@ final class AwakeController: ObservableObject {
         }
         pollFailures = 0
         taskRunningChanged(snapshot.profiles.contains { $0.state == 1 })
-    }
-
-    // 通过 osascript 请求管理员权限执行 pmset；授权对话框由系统弹出。
-    private nonisolated static func applySystemSleep(disabled: Bool) async -> Bool {
-        let command = disabled ? "/usr/bin/pmset -a disablesleep 1" : "/usr/bin/pmset -a disablesleep 0"
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                process.arguments = ["-e", "do shell script \"\(command)\" with administrator privileges"]
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-                do { try process.run() } catch {
-                    continuation.resume(returning: false)
-                    return
-                }
-                process.waitUntilExit()
-                continuation.resume(returning: process.terminationStatus == 0)
-            }
-        }
-    }
-
-    private nonisolated static func systemSleepDisabled() -> Bool? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        process.arguments = ["-g"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        process.waitUntilExit()
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        return output.split(separator: "\n").contains {
-            let line = $0.trimmingCharacters(in: .whitespaces)
-            return line.hasPrefix("SleepDisabled") && line.contains("1")
-        }
     }
 }

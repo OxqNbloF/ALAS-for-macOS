@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ ! -f 'ALAS for macOS/Runtime/bundled/core.bundle' ]]; then
+    echo '提示：未找到内置运行时种子，本次发布包首次启动需要联网。'
+    echo '      可用 ./scripts/bundle-runtime.sh 生成后再打包。'
+fi
 STAGING="$(mktemp -d /private/tmp/alas-package.XXXXXX)"
 trap 'rm -rf "$STAGING"' EXIT
 ./scripts/build-app.sh "$STAGING/ALAS.app"

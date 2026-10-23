@@ -18,42 +18,42 @@ struct ContentView: View {
             if let url = launcher.url {
                 NativeMainView(url: url, token: launcher.apiToken)
             } else {
-                VStack(spacing: 20) {
-                    Image(systemName: "sailboat.circle.fill")
-                        .font(.system(size: 76)).foregroundStyle(.blue.gradient)
-                    Text(launcher.failure == nil ? "准备启航" : "启动需要处理").font(.largeTitle.bold())
-                    Text(launcher.failure ?? "首次启动将下载 ALAS 核心，并配置专属运行环境。\n运行环境与数据将自动保存在 Application Support/AzurLaneAutoScript。")
-                        .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 560)
+                VStack(spacing: 18) {
+                    Text(launcher.failure == nil ? "正在准备" : "启动需要处理")
+                        .font(.largeTitle.bold())
                     if launcher.isFirstDeployment {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Text(launcher.deployment.title).font(.headline)
                                 Spacer()
-                                Text(launcher.deployment.label).monospacedDigit().foregroundStyle(.secondary)
+                                Text(launcher.deployment.label)
+                                    .monospacedDigit().foregroundStyle(.secondary)
                             }
-                            Group {
-                                if launcher.busy && !launcher.deployment.completed {
-                                    ProgressView()
-                                } else {
-                                    ProgressView(value: launcher.deployment.fraction)
-                                }
-                            }
+                            ProgressView(value: launcher.deployment.fraction)
                                 .progressViewStyle(.linear)
                                 .tint(launcher.failure == nil ? .blue : .orange)
-                                .accessibilityLabel("首次部署进度")
+                                .accessibilityLabel("部署进度")
                                 .accessibilityValue(launcher.deployment.label)
-                            Text(launcher.failure == nil ? launcher.deployment.detail : "部署已暂停，请处理错误后重试。")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(launcher.failure == nil ? launcher.deployment.detail
+                                                          : "部署已暂停，请处理错误后重试。")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(18)
                         .frame(maxWidth: 520)
                         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    if launcher.busy && !launcher.isFirstDeployment {
+                    } else if launcher.busy {
                         ProgressView().controlSize(.small)
-                    } else if !launcher.busy {
-                        Button("重试启动") { launcher.start() }.buttonStyle(.borderedProminent)
+                    }
+                    if let failure = launcher.failure {
+                        Text(failure)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: 560)
+                    }
+                    if !launcher.busy {
+                        Button("重试启动") { launcher.start() }
+                            .buttonStyle(.borderedProminent)
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }

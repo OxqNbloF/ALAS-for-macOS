@@ -1,0 +1,4 @@
+# 发布构建的输入，不入库
+*
+!.gitignore
+!README.md

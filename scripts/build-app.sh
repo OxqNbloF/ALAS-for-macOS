@@ -19,6 +19,10 @@ xcodebuild -project 'ALAS for macOS.xcodeproj' -scheme 'ALAS for macOS' \
 APP="$BUILD/Build/Products/Release/ALAS for macOS.app"
 [[ ! -e "$APP/Contents/Resources/ALASData" ]]
 [[ ! -e "$APP/Contents/Resources/AzurLaneAutoScript" ]]
+# 内置运行时种子里的可执行文件先单独 ad-hoc 签名，避免 --deep 校验失败。
+for nested in "$APP/Contents/Resources/Runtime/bundled/micromamba"; do
+    [[ ! -f "$nested" ]] || /usr/bin/codesign --force --sign - "$nested"
+done
 /usr/bin/codesign --force --sign - "$APP"
 /usr/bin/codesign --verify --deep --strict "$APP"
 mkdir -p "$(dirname "$OUTPUT")"

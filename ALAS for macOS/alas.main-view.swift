@@ -76,7 +76,6 @@ struct NativeMainView: View {
         .onChange(of: awakeEnabled) { _, value in awake.configure(enabled: value, threshold: awakeThreshold) }
         .onChange(of: awakeThreshold) { _, value in awake.configure(enabled: awakeEnabled, threshold: value) }
         .task {
-            awake.refreshSystemSleepState()
             awake.configure(enabled: awakeEnabled, threshold: awakeThreshold)
             awake.taskRunningChanged(anyTaskRunning)
         }
@@ -383,10 +382,6 @@ struct NativeMainView: View {
                     ), in: 10...90, step: 10)
                     Text("\(awakeThreshold)%").monospacedDigit().frame(width: 44, alignment: .trailing)
                 }
-                Toggle("合盖后仍保持运行（需要管理员授权）", isOn: Binding(
-                    get: { awake.clamshellDisabled },
-                    set: { awake.setClamshell($0) }))
-                    .help("会修改系统 pmset 的 disablesleep；退出应用后仍保持，关闭该开关时恢复。")
                 LabeledContent("状态", value: awake.status)
                 if let battery = awake.batteryPercent {
                     LabeledContent("电池", value: "\(battery)%\(awake.onBattery ? "" : " · 接通电源")")

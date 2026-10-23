@@ -34,5 +34,18 @@ struct DeploymentProgressTests {
         precondition(progress.fraction == 1 && progress.completed)
         progress.consume(Data("@@ALAS_STAGE:7:延迟日志\n".utf8))
         precondition(progress.title == "部署完成")
+
+        // 安装脚本上报的百分比优先于步骤估算，并且只增不减。
+        var live = DeploymentProgress()
+        live.consume(Data("@@ALAS_STAGE:5:创建环境\n@@ALAS_PROGRESS:42\n".utf8))
+        precondition(live.percent == 42)
+        precondition(live.label == "42%")
+        precondition(abs(live.fraction - 0.42) < 0.0001)
+        live.consume(Data("@@ALAS_PROGRESS:40\n".utf8))
+        precondition(live.percent == 42)
+        live.consume(Data("@@ALAS_PROGRESS:120\n".utf8))
+        precondition(live.percent == 100)
+        live.finish()
+        precondition(live.label == "100%" && live.fraction == 1)
     }
 }
